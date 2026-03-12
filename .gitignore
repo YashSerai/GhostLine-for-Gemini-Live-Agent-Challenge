@@ -1,0 +1,6 @@
+# Ignore .env and markdown files inside the docs directory (and its subdirectories)
+docs/**/*.md
+.env
+venv/
+env/
+.venv/
