@@ -1,6 +1,34 @@
-# Ignore .env and markdown files inside the docs directory (and its subdirectories)
-docs/**/*.md
+# Environment files and secrets
 .env
+.env.*
+!.env.example
+
+# Frontend dependencies and build output
+client/node_modules/
+client/dist/
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Python environments and caches
 venv/
 env/
 .venv/
+.verify-venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+.verify-*.log
+
+# Editors and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

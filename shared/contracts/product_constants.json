@@ -1,0 +1,62 @@
+{
+  "taskIds": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "T8",
+    "T9",
+    "T10",
+    "T11",
+    "T12",
+    "T13",
+    "T14",
+    "T15"
+  ],
+  "taskTiers": [1, 2, 3],
+  "taskRoleCategories": [
+    "containment",
+    "diagnostic",
+    "flavor"
+  ],
+  "pathModes": [
+    "threshold",
+    "tabletop",
+    "low_visibility"
+  ],
+  "verificationResultStatuses": [
+    "confirmed",
+    "unconfirmed",
+    "user_confirmed_only"
+  ],
+  "sessionStates": [
+    "init",
+    "call_connected",
+    "consent",
+    "camera_request",
+    "calibration",
+    "task_assigned",
+    "waiting_ready",
+    "verifying",
+    "diagnosis_beat",
+    "recovery_active",
+    "swap_pending",
+    "paused",
+    "completed",
+    "case_report",
+    "ended"
+  ],
+  "caseReportVerdicts": [
+    "secured",
+    "partial",
+    "inconclusive"
+  ],
+  "uiStatusLabels": [
+    "speaking",
+    "listening",
+    "interrupted"
+  ]
+}
