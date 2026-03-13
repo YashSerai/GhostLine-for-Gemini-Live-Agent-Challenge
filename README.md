@@ -11,7 +11,7 @@ This repository is intentionally locked to one stack and one architecture direct
 - Cloud target: Cloud Run + Firestore + Cloud Logging
 - Realtime client/backend transport: WebSocket
 
-No substitutions are planned for this scaffold.
+No substitutions are planned for this build.
 That means no SSR, no Next.js, no Angular, no Vue, and no Node backend.
 
 ## Repo Structure
@@ -30,8 +30,6 @@ Before implementing features, follow these documents:
 - `docs/PRODUCT_CONTEXT.md`
 - `docs/DEMO_MODE.md`
 - `docs/BUILD_GUIDE.md`
-
-These documents define the product concept, demo constraints, and the phased implementation plan.
 
 ## Local Development
 
@@ -56,31 +54,59 @@ If `npm` is not on your PATH on this machine, use:
 ```
 
 The Vite dev server is configured for `http://127.0.0.1:5173`.
+`client/vite.config.ts` points `envDir` at the repo root, so `VITE_SESSION_WS_URL` can live in the root `.env` file.
 
 ### Backend Setup
+
+Use a standard CPython 3.11+ interpreter for Gemini Live dependencies.
+The Google GenAI SDK may not install cleanly under MSYS Python builds.
+On this machine, do not use plain `python` for backend setup because it resolves to `C:\msys64\mingw64\bin\python.exe`.
 
 From the repo root:
 
 ```powershell
 cd server
-python -m venv .venv
-& '.\.venv\bin\python.exe' -m pip install --upgrade pip
-& '.\.venv\bin\python.exe' -m pip install -r requirements.txt
-& '.\.venv\bin\python.exe' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+& "C:\Users\yashs\AppData\Local\Programs\Python\Python311\python.exe" -m venv .venv
+& '.\.venv\Scripts\python.exe' -m pip install --upgrade pip
+& '.\.venv\Scripts\python.exe' -m pip install -r requirements.txt
+& '.\.venv\Scripts\python.exe' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+If `.venv` already exists, run the backend with:
+
+```powershell
+cd server
+& '.\.venv\Scripts\python.exe' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 The FastAPI development server is configured for `http://127.0.0.1:8000`.
+The backend loads the repo-root `.env` automatically, and relative `GOOGLE_APPLICATION_CREDENTIALS` paths are resolved from the repo root.
+
+### Credential Note
+
+Keep the Google service-account JSON outside this repo when possible and store only its filesystem path in `.env`.
+If your credentials file is already outside the repo, you do not need to move it.
+If it is currently inside the repo, move it out and keep only the path in `.env`.
 
 ## Current Scope
 
-This repository currently covers the foundation and transport checkpoint through Prompts 1-7:
+This repository now covers Prompts 1-13 from `docs/BUILD_GUIDE.md`:
 
 - monorepo scaffold and locked stack
 - Vite React TypeScript client workspace
 - FastAPI backend workspace with config, logging, and health endpoints
 - shared constants skeleton for frontend/backend alignment
-- hotline-style frontend shell
+- hotline UI shell
 - backend WebSocket session gateway
-- client WebSocket session manager and shell connection state
+- client WebSocket session manager and connection state
+- backend Gemini Live session manager for Vertex AI
+- client mic PCM capture streamed through the backend to Gemini Live
+- Gemini operator audio streamed back to the client for low-latency playback
+- in-call camera preview with low-frequency staged frame capture for calibration and Ready to Verify windows
+- in-call camera and microphone permission flow driven from the operator panel
+- always-on user and operator transcript layer with preserved short-call context
 
-No Gemini integration, live media, or product protocol logic has been implemented yet.
+Planner logic, verification, and case reports remain out of scope for this checkpoint.
+
+
+

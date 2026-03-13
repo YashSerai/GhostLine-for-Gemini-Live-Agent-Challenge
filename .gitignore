@@ -17,11 +17,16 @@ venv/
 env/
 .venv/
 .verify-venv/
+.sdk-verify-venv/
+.prompt8-verify-venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local SDK inspection artifacts
+server/.sdk-wheel/
 
 # Logs
 *.log
@@ -32,3 +37,7 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Generated TypeScript config output
+client/vite.config.js
+client/vite.config.d.ts

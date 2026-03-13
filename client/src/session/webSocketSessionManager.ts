@@ -1,6 +1,7 @@
 import {
   type ClientSessionMessageType,
   type SessionEnvelope,
+  type SessionEnvelopeListener,
   type SessionManagerSnapshot,
   type TransportLogEntry,
 } from "./sessionTypes";
@@ -8,6 +9,7 @@ import {
 const DEFAULT_RECONNECT_DELAYS_MS = [1000, 2000, 4000] as const;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 3;
 const MAX_TRANSPORT_LOG_ENTRIES = 6;
+const NON_LOGGED_TRANSPORT_TYPES = new Set(["audio_chunk", "operator_audio_chunk", "transcript"]);
 
 type SnapshotListener = (snapshot: SessionManagerSnapshot) => void;
 
@@ -27,6 +29,10 @@ function createRequestId(): string {
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function shouldRecordEnvelopeType(type: string): boolean {
+  return !NON_LOGGED_TRANSPORT_TYPES.has(type);
 }
 
 function normalizeIncomingEnvelope(raw: unknown): SessionEnvelope<string> {
@@ -70,6 +76,7 @@ export class WebSocketSessionManager {
   private readonly reconnectDelaysMs: readonly number[];
   private readonly maxReconnectAttempts: number;
   private readonly listeners = new Set<SnapshotListener>();
+  private readonly envelopeListeners = new Set<SessionEnvelopeListener>();
 
   private socket: WebSocket | null = null;
   private reconnectTimer: number | null = null;
@@ -98,6 +105,14 @@ export class WebSocketSessionManager {
 
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  subscribeToEnvelopes(listener: SessionEnvelopeListener): () => void {
+    this.envelopeListeners.add(listener);
+
+    return () => {
+      this.envelopeListeners.delete(listener);
     };
   }
 
@@ -159,8 +174,15 @@ export class WebSocketSessionManager {
       clientTimestamp: envelope.clientTimestamp ?? new Date().toISOString(),
     };
 
+    if (normalizedEnvelope.type === "stop") {
+      this.manualDisconnect = true;
+      this.clearReconnectTimer();
+    }
+
     socket.send(JSON.stringify(normalizedEnvelope));
-    this.recordTransport("sent", normalizedEnvelope);
+    if (shouldRecordEnvelopeType(normalizedEnvelope.type)) {
+      this.recordTransport("sent", normalizedEnvelope);
+    }
     return true;
   }
 
@@ -173,6 +195,10 @@ export class WebSocketSessionManager {
 
   private emitSnapshot(): void {
     this.listeners.forEach((listener) => listener(this.snapshot));
+  }
+
+  private emitEnvelope(envelope: SessionEnvelope<string>): void {
+    this.envelopeListeners.forEach((listener) => listener(envelope));
   }
 
   private updateSnapshot(patch: Partial<SessionManagerSnapshot>): void {
@@ -271,7 +297,9 @@ export class WebSocketSessionManager {
       const rawText = await this.normalizeMessageData(messageData);
       const parsedEnvelope = normalizeIncomingEnvelope(JSON.parse(rawText));
 
-      this.recordTransport("received", parsedEnvelope);
+      if (shouldRecordEnvelopeType(parsedEnvelope.type)) {
+        this.recordTransport("received", parsedEnvelope);
+      }
 
       if (parsedEnvelope.sessionId) {
         this.updateSnapshot({ sessionId: parsedEnvelope.sessionId });
@@ -284,6 +312,8 @@ export class WebSocketSessionManager {
             : "Server returned an error envelope.";
         this.updateSnapshot({ lastError: detail });
       }
+
+      this.emitEnvelope(parsedEnvelope);
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : "Invalid server envelope.";
@@ -320,8 +350,12 @@ export class WebSocketSessionManager {
       return;
     }
 
-    const delayIndex = Math.min(nextAttempt - 1, this.reconnectDelaysMs.length - 1);
-    const delay = this.reconnectDelaysMs[delayIndex] ?? DEFAULT_RECONNECT_DELAYS_MS[0];
+    const delayIndex = Math.min(
+      nextAttempt - 1,
+      this.reconnectDelaysMs.length - 1,
+    );
+    const delay =
+      this.reconnectDelaysMs[delayIndex] ?? DEFAULT_RECONNECT_DELAYS_MS[0];
 
     this.updateSnapshot({
       status: "reconnecting",
@@ -358,3 +392,5 @@ export class WebSocketSessionManager {
     });
   }
 }
+
+

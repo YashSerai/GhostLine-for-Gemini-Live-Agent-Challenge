@@ -1,6 +1,7 @@
-export const CLIENT_SESSION_MESSAGE_TYPES = [
+﻿export const CLIENT_SESSION_MESSAGE_TYPES = [
   "client_connect",
   "mic_status",
+  "audio_chunk",
   "camera_status",
   "transcript",
   "frame",
@@ -10,8 +11,21 @@ export const CLIENT_SESSION_MESSAGE_TYPES = [
   "stop",
 ] as const;
 
+export const SERVER_SESSION_MESSAGE_TYPES = [
+  "error",
+  "operator_audio_chunk",
+  "operator_interruption",
+  "swap_request",
+  "transcript",
+  "verification_state",
+  "verification_result",
+] as const;
+
 export type ClientSessionMessageType =
   (typeof CLIENT_SESSION_MESSAGE_TYPES)[number];
+
+export type ServerSessionMessageType =
+  (typeof SERVER_SESSION_MESSAGE_TYPES)[number];
 
 export type SessionConnectionStatus =
   | "idle"
@@ -42,3 +56,7 @@ export interface SessionManagerSnapshot {
   lastError: string | null;
   recentMessages: readonly TransportLogEntry[];
 }
+
+export type SessionEnvelopeListener = (
+  envelope: SessionEnvelope<string>,
+) => void;

@@ -1,3 +1,5 @@
-fastapi==0.99.1
+# google-genai requires pydantic 2, so FastAPI must stay on a pydantic-2-compatible release.
+fastapi==0.115.6
+google-genai==1.67.0
 uvicorn==0.23.2
 wsproto==1.2.0

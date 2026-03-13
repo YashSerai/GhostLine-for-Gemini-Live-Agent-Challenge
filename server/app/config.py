@@ -1,4 +1,4 @@
-"""Environment-backed application settings for the Ghostline backend."""
+﻿"""Environment-backed application settings for the Ghostline backend."""
 
 from __future__ import annotations
 
@@ -6,9 +6,39 @@ from dataclasses import dataclass
 from functools import lru_cache
 import os
 
+from .env_loader import load_repo_env
+
+load_repo_env()
+
+_VALID_VERIFICATION_RESULTS = frozenset(
+    {"confirmed", "unconfirmed", "user_confirmed_only"}
+)
+
 
 def _parse_csv(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def _parse_bool(value: str | None, *, default: bool) -> bool:
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _parse_verification_result(value: str | None, *, default: str) -> str:
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in _VALID_VERIFICATION_RESULTS:
+        return normalized
+    return default
 
 
 def _derive_local_client_origins(client_host: str, client_port: int) -> tuple[str, ...]:
@@ -23,6 +53,32 @@ def _derive_local_client_origins(client_host: str, client_port: int) -> tuple[st
 
 
 @dataclass(frozen=True)
+class GeminiLiveSettings:
+    project: str
+    location: str
+    model: str
+    credentials_path: str | None
+    voice_name: str | None
+    voice_language_code: str | None
+    input_audio_transcription_enabled: bool
+    output_audio_transcription_enabled: bool
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.project and self.location and self.model)
+
+
+@dataclass(frozen=True)
+class MockVerificationSettings:
+    enabled: bool
+    force_failure: bool
+    tier1_result: str
+    tier2_result: str
+    tier3_result: str
+    unknown_tier_result: str
+
+
+@dataclass(frozen=True)
 class Settings:
     app_name: str
     app_env: str
@@ -32,6 +88,8 @@ class Settings:
     client_host: str
     client_port: int
     cors_origins: tuple[str, ...]
+    gemini_live: GeminiLiveSettings
+    mock_verification: MockVerificationSettings
 
 
 @lru_cache(maxsize=1)
@@ -50,6 +108,58 @@ def get_settings() -> Settings:
     else:
         cors_origins = _derive_local_client_origins(client_host, client_port)
 
+    gemini_live = GeminiLiveSettings(
+        project=os.getenv("GOOGLE_CLOUD_PROJECT", "").strip(),
+        location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1").strip()
+        or "us-central1",
+        model=os.getenv(
+            "VERTEX_AI_MODEL",
+            "gemini-live-2.5-flash-native-audio",
+        ).strip()
+        or "gemini-live-2.5-flash-native-audio",
+        credentials_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        or None,
+        voice_name=os.getenv("GEMINI_LIVE_VOICE_NAME", "").strip() or None,
+        voice_language_code=os.getenv(
+            "GEMINI_LIVE_VOICE_LANGUAGE_CODE", ""
+        ).strip()
+        or None,
+        input_audio_transcription_enabled=_parse_bool(
+            os.getenv("GEMINI_LIVE_INPUT_TRANSCRIPTION"),
+            default=True,
+        ),
+        output_audio_transcription_enabled=_parse_bool(
+            os.getenv("GEMINI_LIVE_OUTPUT_TRANSCRIPTION"),
+            default=True,
+        ),
+    )
+    mock_verification = MockVerificationSettings(
+        enabled=_parse_bool(
+            os.getenv("MOCK_VERIFICATION_ENABLED"),
+            default=False,
+        ),
+        force_failure=_parse_bool(
+            os.getenv("MOCK_VERIFICATION_FORCE_FAILURE"),
+            default=False,
+        ),
+        tier1_result=_parse_verification_result(
+            os.getenv("MOCK_VERIFICATION_TIER1_RESULT"),
+            default="confirmed",
+        ),
+        tier2_result=_parse_verification_result(
+            os.getenv("MOCK_VERIFICATION_TIER2_RESULT"),
+            default="user_confirmed_only",
+        ),
+        tier3_result=_parse_verification_result(
+            os.getenv("MOCK_VERIFICATION_TIER3_RESULT"),
+            default="user_confirmed_only",
+        ),
+        unknown_tier_result=_parse_verification_result(
+            os.getenv("MOCK_VERIFICATION_UNKNOWN_TIER_RESULT"),
+            default="user_confirmed_only",
+        ),
+    )
+
     return Settings(
         app_name=app_name,
         app_env=app_env,
@@ -59,4 +169,6 @@ def get_settings() -> Settings:
         client_host=client_host,
         client_port=client_port,
         cors_origins=cors_origins,
+        gemini_live=gemini_live,
+        mock_verification=mock_verification,
     )

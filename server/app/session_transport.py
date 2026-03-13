@@ -8,6 +8,7 @@ from typing import Any, Final
 SESSION_MESSAGE_TYPES: Final[tuple[str, ...]] = (
     "client_connect",
     "mic_status",
+    "audio_chunk",
     "camera_status",
     "transcript",
     "frame",

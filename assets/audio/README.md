@@ -1,5 +1,12 @@
-# Audio Assets Placeholder
+# Audio Assets
 
-This directory is reserved for pre-baked audio assets that support the Ghostline hotline experience.
+Ghostline sound design uses static, pre-baked assets only.
 
-Per the product constraints, sound design should use authored assets rather than live AI-generated sound effects.
+Runtime-served frontend audio for Prompt 30 lives in `client/public/audio/` so Vite can preload and play it directly in the browser.
+
+The current authored cue set covers:
+- ambient bed
+- light tension stinger
+- warning / escalation cue
+- verification success cue
+- containment result cue

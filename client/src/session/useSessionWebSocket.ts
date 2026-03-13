@@ -7,6 +7,7 @@ import {
 import {
   type ClientSessionMessageType,
   type SessionEnvelope,
+  type SessionEnvelopeListener,
   type SessionManagerSnapshot,
 } from "./sessionTypes";
 
@@ -35,6 +36,8 @@ export function useSessionWebSocket() {
 
   const connect = () => manager.connect();
   const disconnect = () => manager.disconnect();
+  const subscribeToEnvelopes = (listener: SessionEnvelopeListener) =>
+    manager.subscribeToEnvelopes(listener);
   const sendEnvelope = <T extends ClientSessionMessageType>(
     envelope: SessionEnvelope<T>,
   ) => manager.sendEnvelope(envelope);
@@ -47,6 +50,8 @@ export function useSessionWebSocket() {
     ...snapshot,
     connect,
     disconnect,
+    manager,
+    subscribeToEnvelopes,
     sendEnvelope,
     sendMessage,
     sessionUrl: getDefaultManagerOptions().url,
