@@ -11,6 +11,7 @@ from .case_report import build_case_report_artifact
 from .capability_profile import (
     ObservedAffordances,
     QualityMetrics,
+    UserDeclaredConstraints,
     build_capability_profile,
 )
 from .incident_classification import (
@@ -149,6 +150,8 @@ class SessionStateMachine:
         self.turn_status: TurnStatus = "idle"
         self.interruption_count = 0
         self.camera_ready = False
+        self.camera_width: int | None = None
+        self.camera_height: int | None = None
         self.microphone_streaming = False
         self.transcript_references: list[dict[str, Any]] = []
         self.task_history: list[dict[str, Any]] = []
@@ -157,7 +160,6 @@ class SessionStateMachine:
         self.ended_reason: str | None = None
 
     async def handle_client_connect(self) -> None:
-        self._ensure_plan()
         self._transition("call_connected", "client_connect")
         self._transition("consent", "hotline_connected")
         self._transition("camera_request", "in_call_permission_flow")
@@ -173,6 +175,8 @@ class SessionStateMachine:
         permission = payload.get("permission")
         preview = payload.get("preview")
         self.camera_ready = permission == "granted" and preview is True
+        self.camera_width = _int_or_none(payload.get("width")) if self.camera_ready else None
+        self.camera_height = _int_or_none(payload.get("height")) if self.camera_ready else None
 
         if self.state != "paused":
             if self.camera_ready and self.state == "camera_request":
@@ -529,28 +533,71 @@ class SessionStateMachine:
         if self.plan is not None:
             return
 
-        # TEMPORARY PROMPT 36 STUB:
-        # Live capability detection is not yet wired into the active session.
-        # Seed the deterministic planner with a conservative baseline profile so
-        # the state machine can assign real tasks now instead of leaving task
-        # context unresolved.
-        profile = build_capability_profile(
-            observed_affordances=ObservedAffordances(
-                threshold_available=True,
-                flat_surface_available=True,
-                paper_available=True,
-                light_controllable=True,
-                reflective_surface_available=False,
-                water_source_nearby=False,
-            ),
-            quality_metrics=QualityMetrics(
-                lighting=0.72,
-                blur=0.22,
-                motion_stability=0.74,
-            ),
-        )
+        profile = self._build_live_capability_profile()
         self.plan = build_protocol_plan(profile)
         self.current_path_mode = profile.environment.path_mode
+
+    def _build_live_capability_profile(self):
+        transcript_lines = self._recent_user_transcript_lines()
+        lowered_lines = tuple(line.lower() for line in transcript_lines)
+        observed_affordances = ObservedAffordances(
+            threshold_available=_infer_positive_affordance(lowered_lines, ("door", "doorway", "threshold", "hallway", "entry")),
+            flat_surface_available=_infer_positive_affordance(lowered_lines, ("table", "desk", "counter", "shelf", "flat surface")),
+            paper_available=_infer_positive_affordance(lowered_lines, ("paper", "notebook", "page", "receipt", "index card")),
+            light_controllable=_infer_positive_affordance(lowered_lines, ("lamp", "light switch", "overhead light", "flashlight")),
+            reflective_surface_available=_infer_positive_affordance(lowered_lines, ("mirror", "glass", "window", "screen")),
+            water_source_nearby=_infer_positive_affordance(lowered_lines, ("sink", "faucet", "water", "bowl", "cup")),
+        )
+        user_constraints = UserDeclaredConstraints(
+            cannot_use_threshold=_contains_any(lowered_lines, ("no door", "no threshold", "cannot use the door", "can't use the door")),
+            no_flat_surface=_contains_any(lowered_lines, ("no table", "no counter", "no desk", "no flat surface")),
+            no_paper=_contains_any(lowered_lines, ("no paper", "dont have paper", "don't have paper")),
+            cannot_adjust_light=_contains_any(lowered_lines, ("cannot adjust light", "can't adjust light", "light won't", "lights wont")),
+            no_reflective_surface=_contains_any(lowered_lines, ("no mirror", "no reflective", "no glass")),
+            no_water_source=_contains_any(lowered_lines, ("no water", "no sink", "no faucet")),
+            notes=tuple(self._build_constraint_notes(lowered_lines)),
+        )
+        quality_metrics = self._build_session_quality_metrics()
+        return build_capability_profile(
+            observed_affordances=observed_affordances,
+            quality_metrics=quality_metrics,
+            user_constraints=user_constraints,
+        )
+
+    def _build_session_quality_metrics(self) -> QualityMetrics:
+        if not self.camera_ready:
+            return QualityMetrics(lighting=0.28, blur=0.58, motion_stability=0.35)
+
+        width = self.camera_width or 0
+        height = self.camera_height or 0
+        if width >= 1280 or height >= 720:
+            return QualityMetrics(lighting=0.72, blur=0.24, motion_stability=0.7)
+        if width >= 960 or height >= 540:
+            return QualityMetrics(lighting=0.62, blur=0.32, motion_stability=0.64)
+        return QualityMetrics(lighting=0.52, blur=0.4, motion_stability=0.56)
+
+    def _recent_user_transcript_lines(self) -> tuple[str, ...]:
+        return tuple(
+            reference["text"]
+            for reference in self.transcript_references[-6:]
+            if reference.get("speaker") == "user" and isinstance(reference.get("text"), str)
+        )
+
+    def _build_constraint_notes(self, lowered_lines: tuple[str, ...]) -> list[str]:
+        notes: list[str] = []
+        if _contains_any(lowered_lines, ("no door", "no threshold", "cannot use the door", "can't use the door")):
+            notes.append("user declared no usable threshold")
+        if _contains_any(lowered_lines, ("no table", "no counter", "no desk", "no flat surface")):
+            notes.append("user declared no flat surface")
+        if _contains_any(lowered_lines, ("no paper", "dont have paper", "don't have paper")):
+            notes.append("user declared no paper")
+        if _contains_any(lowered_lines, ("cannot adjust light", "can't adjust light", "light won't", "lights wont")):
+            notes.append("user declared lighting cannot be adjusted")
+        if _contains_any(lowered_lines, ("no mirror", "no reflective", "no glass")):
+            notes.append("user declared no reflective surface")
+        if _contains_any(lowered_lines, ("no water", "no sink", "no faucet")):
+            notes.append("user declared no water source")
+        return notes
 
     def _assign_next_task(self, reason: str) -> None:
         self._ensure_plan()
@@ -581,6 +628,7 @@ class SessionStateMachine:
             "protocolStep": self.current_step,
             "taskId": task.id,
             "taskName": task.name,
+            "operatorDescription": task.operator_description,
             "taskRoleCategory": task.role_category,
             "taskTier": task.tier,
             "verificationClass": task.verification_class,
@@ -775,6 +823,16 @@ class SessionStateMachine:
             )
 
 
+def _contains_any(lines: tuple[str, ...], phrases: tuple[str, ...]) -> bool:
+    return any(phrase in line for line in lines for phrase in phrases)
+
+
+def _infer_positive_affordance(
+    lines: tuple[str, ...],
+    phrases: tuple[str, ...],
+) -> bool | None:
+    return True if _contains_any(lines, phrases) else None
+
 def _normalize_task_context(value: dict[str, Any]) -> dict[str, Any]:
     return {
         "contextLabel": value.get("contextLabel"),
@@ -783,6 +841,7 @@ def _normalize_task_context(value: dict[str, Any]) -> dict[str, Any]:
         "protocolStep": value.get("protocolStep"),
         "taskId": value.get("taskId"),
         "taskName": value.get("taskName"),
+        "operatorDescription": value.get("operatorDescription"),
         "taskRoleCategory": value.get("taskRoleCategory"),
         "taskTier": value.get("taskTier"),
         "verificationClass": value.get("verificationClass"),
@@ -817,6 +876,12 @@ def _utc_now_iso() -> str:
 
 
 __all__ = ["SessionStateMachine", "SessionStateMachineError"]
+
+
+
+
+
+
 
 
 

@@ -120,6 +120,25 @@ class GeminiLiveSession:
                 "Failed to finalize audio input for Gemini Live."
             ) from exc
 
+    async def send_text_input(self, text: str) -> None:
+        self._ensure_open()
+        if not isinstance(text, str) or not text.strip():
+            raise GeminiLiveSessionError("Text input cannot be empty.")
+
+        try:
+            await self._sdk_session.send_realtime_input(text=text.strip())
+        except Exception as exc:
+            log_event(
+                LOGGER,
+                logging.ERROR,
+                "gemini_live_text_send_failed",
+                session_id=self.session_id,
+                detail=str(exc),
+            )
+            raise GeminiLiveSessionError(
+                "Failed to send text input to Gemini Live."
+            ) from exc
+
     async def send_image_frame(
         self,
         image_bytes: bytes,
@@ -556,3 +575,4 @@ class GeminiLiveSessionManager:
         sessions = list(self._sessions.values())
         for session in sessions:
             await session.close()
+

@@ -38,6 +38,7 @@ _TASK_CONTEXT_KEYS: Final[tuple[str, ...]] = (
     "protocolStep",
     "taskId",
     "taskName",
+    "operatorDescription",
     "taskRoleCategory",
     "taskTier",
     "verificationClass",
@@ -504,6 +505,7 @@ def _build_substitute_task_context(
             "swapCount": swap_count,
             "taskId": substitute_task.id,
             "taskName": substitute_task.name,
+            "operatorDescription": substitute_task.operator_description,
             "taskRoleCategory": substitute_task.role_category,
             "taskTier": substitute_task.tier,
             "verificationClass": substitute_task.verification_class,
@@ -548,6 +550,9 @@ __all__ = [
     "SessionCapabilityRecoveryManager",
     "SubstituteTaskPayload",
 ]
+
+
+
 
 
 

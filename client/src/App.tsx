@@ -17,6 +17,7 @@ import { useSessionWebSocket } from "./session/useSessionWebSocket";
 import {
   useReadyToVerifyFlow,
   type ReadyToVerifyPhase,
+  type VerificationTaskContext,
 } from "./verification/useReadyToVerifyFlow";
 import { useVerificationResultState } from "./verification/useVerificationResultState";
 import type {
@@ -182,11 +183,36 @@ function formatPermissionStage(stage: PermissionStage): string {
   }
 }
 
+function buildActiveTaskInstruction(
+  activeTaskContext: VerificationTaskContext | null,
+): string | null {
+  if (activeTaskContext === null) {
+    return null;
+  }
+
+  const taskName =
+    typeof activeTaskContext.taskName === "string" &&
+    activeTaskContext.taskName.trim().length > 0
+      ? activeTaskContext.taskName.trim()
+      : null;
+  if (taskName === null) {
+    return null;
+  }
+
+  const operatorDescription =
+    typeof activeTaskContext.operatorDescription === "string" &&
+    activeTaskContext.operatorDescription.trim().length > 0
+      ? activeTaskContext.operatorDescription.trim()
+      : "Perform the current containment step once, keep the frame readable, then stop.";
+
+  return `Current task: ${taskName}. ${operatorDescription} When finished, say Ready to Verify.`;
+}
 function getOperatorPlaceholder(
   connectionStatus: SessionConnectionStatus,
   permissionStage: PermissionStage,
   cameraReady: boolean,
   captureFrameCount: number,
+  activeTaskContext: VerificationTaskContext | null,
   microphonePermission: string,
   isMicStreaming: boolean,
   isOperatorSpeaking: boolean,
@@ -225,7 +251,7 @@ function getOperatorPlaceholder(
   }
 
   if (permissionStage === "request_camera") {
-    return "I need your camera. Grant access now. Keep the room in frame so I can start calibration sampling from the live feed.";
+    return "I need your camera. Grant access now. Keep the room in frame so I can start calibration. Calibration means one clean still frame of the doorway or nearest boundary.";
   }
 
   if (permissionStage === "camera_requesting") {
@@ -249,7 +275,7 @@ function getOperatorPlaceholder(
   }
 
   if (connectionStatus === "connected" && cameraReady && captureFrameCount === 0) {
-    return "Room feed linked. Capture Calibration below to stage the first still frame. Ready to Verify, swap, pause, and end are held in the main control bar.";
+    return "Room feed linked. Calibration means one clean still frame so I can place the first task. Keep the phone level, center the doorway or nearest boundary, then capture calibration once.";
   }
 
   if (
@@ -258,6 +284,15 @@ function getOperatorPlaceholder(
     microphonePermission === "granted"
   ) {
     return "Both permissions were granted in-call. Resume the microphone stream when you are ready to continue the session.";
+  }
+
+  const activeTaskInstruction = buildActiveTaskInstruction(activeTaskContext);
+  if (
+    connectionStatus === "connected" &&
+    permissionStage === "permissions_ready" &&
+    activeTaskInstruction !== null
+  ) {
+    return activeTaskInstruction;
   }
 
   if (
@@ -617,6 +652,7 @@ function App() {
     permissionStage,
     camera.cameraReady,
     camera.captureFrameCount,
+    activeTaskContext,
     microphone.permission,
     microphone.isStreaming,
     operatorAudio.isSpeaking,
@@ -1462,6 +1498,12 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
 
 
 

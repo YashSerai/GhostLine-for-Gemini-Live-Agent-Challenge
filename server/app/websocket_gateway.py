@@ -11,6 +11,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from .audio_bridge import AudioBridgePayloadError, SessionAudioBridge
 from .capability_recovery import CapabilityRecoveryError, SessionCapabilityRecoveryManager
+from .flavor_text_state_model import FlavorTextStateModel
 from .gemini_live import GeminiLiveError, GeminiLiveSessionManager
 from .incident_classification import IncidentClassificationStore
 from .logging_utils import log_event
@@ -21,12 +22,19 @@ from .session_transport import (
     build_error_envelope,
     parse_session_envelope,
 )
+from .task_helpers import InvalidTaskIdError, get_task_by_id
 from .verification_engine import VerificationEngine
 from .verification_flow import SessionVerificationFlow, VerificationFlowError
 
 LOGGER = logging.getLogger("ghostline.backend.websocket")
 _NO_ACK_MESSAGE_TYPES = frozenset({"audio_chunk"})
 _PLACEHOLDER_ONLY_TYPES = frozenset({"transcript"})
+_GUIDANCE_TRANSCRIPT_SOURCES = frozenset({
+    "session_guidance",
+    "verification_flow",
+    "recovery_ladder",
+    "capability_recovery",
+})
 
 
 class SessionConnectionManager:
@@ -70,6 +78,96 @@ async def _receive_json_message(websocket: WebSocket) -> Any:
         raise InvalidSessionEnvelope("Invalid JSON payload.") from exc
 
 
+
+def _extract_guidance_transcript(message: dict[str, Any]) -> tuple[str, str] | None:
+    if message.get("type") != "transcript":
+        return None
+
+    payload = message.get("payload")
+    if not isinstance(payload, dict):
+        return None
+
+    if payload.get("speaker") != "operator":
+        return None
+
+    source = payload.get("source")
+    text = payload.get("text")
+    if not isinstance(source, str) or source not in _GUIDANCE_TRANSCRIPT_SOURCES:
+        return None
+    if not isinstance(text, str) or not text.strip():
+        return None
+
+    return text.strip(), source
+
+
+def _build_camera_request_guidance(
+    flavor_model: FlavorTextStateModel,
+    session_id: str,
+) -> str:
+    selection = flavor_model.select_flavor_line(
+        session_id,
+        "camera_request",
+        preferred_category="camera_request",
+    )
+    opener = (
+        selection.text
+        if selection is not None
+        else "I need the room, not your face. Show me the nearest threshold or doorway."
+    )
+    return (
+        f"{opener} Calibration means one clean still frame of the room. "
+        "Once the feed is live, capture calibration with the doorway or nearest boundary centered."
+    )
+
+
+def _build_calibration_guidance() -> str:
+    return (
+        "Calibration means one clean still frame of the room so I can place the first task. "
+        "Keep the phone level, show the doorway or nearest boundary, capture calibration once, then hold."
+    )
+
+
+def _build_task_assignment_guidance(
+    flavor_model: FlavorTextStateModel,
+    session_id: str,
+    task_context: dict[str, Any] | None,
+) -> str | None:
+    if not isinstance(task_context, dict):
+        return None
+
+    task_name = task_context.get("taskName")
+    if not isinstance(task_name, str) or not task_name.strip():
+        return None
+
+    opener_selection = flavor_model.select_flavor_line(
+        session_id,
+        "task_assignment",
+        preferred_category="task_introduction",
+    )
+    opener = (
+        opener_selection.text
+        if opener_selection is not None
+        else "Good. We move one step at a time. Do this exactly once, then stop."
+    )
+
+    operator_description = task_context.get("operatorDescription")
+    if not isinstance(operator_description, str) or not operator_description.strip():
+        task_id = task_context.get("taskId")
+        if isinstance(task_id, str) and task_id.strip():
+            try:
+                operator_description = get_task_by_id(task_id.strip()).operator_description
+            except InvalidTaskIdError:
+                operator_description = None
+
+    detail = (
+        operator_description.strip()
+        if isinstance(operator_description, str) and operator_description.strip()
+        else "Perform the current containment step once, keep the frame readable, then stop."
+    )
+    return (
+        f"{opener} Current task: {task_name.strip()}. {detail} "
+        "When the step is in place, stop and say Ready to Verify."
+    )
 def register_websocket_gateway(app: FastAPI) -> None:
     manager = SessionConnectionManager()
     app.state.session_connection_manager = manager
@@ -98,6 +196,8 @@ def register_websocket_gateway(app: FastAPI) -> None:
             "firestore_session_store",
             None,
         )
+        flavor_text_state_model: FlavorTextStateModel = app.state.flavor_text_state_model
+        bridge: SessionAudioBridge | None = None
         state_machine = SessionStateMachine(
             session_id=session_id,
             forward_envelope=lambda message: manager.send_json(session_id, message),
@@ -107,9 +207,30 @@ def register_websocket_gateway(app: FastAPI) -> None:
 
         async def forward_component_envelope(message: dict[str, Any]) -> None:
             changed = state_machine.observe_outbound_envelope(message)
+            guidance_transcript = _extract_guidance_transcript(message)
             await manager.send_json(session_id, message)
+            if guidance_transcript is not None and bridge is not None:
+                guidance_text, guidance_source = guidance_transcript
+                await bridge.send_operator_guidance(
+                    guidance_text,
+                    source=guidance_source,
+                )
             if changed:
                 await state_machine.emit_snapshot()
+
+        async def emit_session_guidance(text: str) -> None:
+            await forward_component_envelope(
+                {
+                    "type": "transcript",
+                    "sessionId": session_id,
+                    "payload": {
+                        "speaker": "operator",
+                        "text": text,
+                        "isFinal": True,
+                        "source": "session_guidance",
+                    },
+                }
+            )
 
         verification_flow = SessionVerificationFlow(
             session_id=session_id,
@@ -213,10 +334,34 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 try:
                     if envelope.message_type == "client_connect":
                         await state_machine.handle_client_connect()
+                        await emit_session_guidance(
+                            _build_camera_request_guidance(
+                                flavor_text_state_model,
+                                session_id,
+                            )
+                        )
                     elif envelope.message_type == "mic_status":
                         verification_flow.update_microphone_state(envelope.payload)
+                        previous_task_id = (
+                            state_machine.current_task_context.get("taskId")
+                            if isinstance(state_machine.current_task_context, dict)
+                            else None
+                        )
                         await state_machine.handle_mic_status(envelope.payload)
+                        current_task_id = (
+                            state_machine.current_task_context.get("taskId")
+                            if isinstance(state_machine.current_task_context, dict)
+                            else None
+                        )
                         if envelope.payload.get("streaming") is True:
+                            if previous_task_id != current_task_id:
+                                task_guidance = _build_task_assignment_guidance(
+                                    flavor_text_state_model,
+                                    session_id,
+                                    state_machine.current_task_context,
+                                )
+                                if task_guidance is not None:
+                                    await emit_session_guidance(task_guidance)
                             await bridge.start_stream(envelope.payload)
                         elif envelope.payload.get("streaming") is False:
                             reason = envelope.payload.get("reason")
@@ -227,7 +372,10 @@ def register_websocket_gateway(app: FastAPI) -> None:
                         await bridge.forward_audio_chunk(envelope.payload)
                     elif envelope.message_type == "camera_status":
                         verification_flow.update_camera_state(envelope.payload)
+                        previous_state = state_machine.state
                         await state_machine.handle_camera_status(envelope.payload)
+                        if previous_state != "calibration" and state_machine.state == "calibration":
+                            await emit_session_guidance(_build_calibration_guidance())
                     elif envelope.message_type == "verify_request":
                         prepared_payload = state_machine.prepare_verification_request(envelope.payload)
                         previous_state = state_machine.begin_verification_request()
@@ -392,4 +540,12 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 reason=disconnect_reason,
                 active_connections=manager.active_count,
             )
+
+
+
+
+
+
+
+
 

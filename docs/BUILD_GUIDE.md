@@ -3036,3 +3036,157 @@ It does not oversell or invent missing features
 
 NOTES / PITFALLS
 Do not write hype disconnected from what was truly built.
+Prompt 57: Live Operator Guidance Orchestrator for Normal Mode
+
+PHASE
+Phase 20: Normal-mode dialogue polish after core architecture
+
+GOAL
+Wire authored operator guidance into the live spoken call path so key hotline beats are not left to generic reactive voice behavior.
+
+WHY IT MATTERS
+The product already has flavor text, diagnosis questions, and a state model, but the caller still needs explicit spoken guidance for calibration, task starts, and next-step transitions. If those beats remain under-directed, the hotline feels vague even when the transport works.
+
+DEPENDENCIES
+Prompts 25 through 29, 36 through 42.
+
+PROMPT TO GIVE THE CODING AGENT
+Integrate the authored flavor/state systems into the live operator path for normal mode.
+
+Requirements:
+
+make state transitions trigger authored spoken guidance, not just HUD or transcript updates
+
+at minimum cover:
+
+camera request
+
+calibration
+
+task assignment
+
+post-verification success/failure
+
+swap/substitution result
+
+final closure
+
+keep the wording deterministic and bounded by state
+
+do not add a freeform narrative generator
+
+preserve Gemini Live for operator voice, but let backend-authored lines drive the key beats
+
+EXPECTED OUTPUT
+A live operator guidance orchestrator that pushes authored hotline lines into the spoken call path.
+
+ACCEPTANCE CRITERIA
+
+critical hotline beats are spoken clearly
+
+operator text and operator voice stay aligned
+
+state-driven guidance is inspectable and deterministic
+
+NOTES / PITFALLS
+Do not let the user hear a vague live voice while the real instructions only exist in side-panel text.
+
+Prompt 58: Calibration Explanation and First Task Coaching
+
+PHASE
+Phase 20: Normal-mode dialogue polish after core architecture
+
+GOAL
+Make calibration and the first task understandable to a cold-start user without relying on prior knowledge.
+
+WHY IT MATTERS
+Calibration is a product mechanic, not a familiar consumer term. The operator must explain what it means, why it matters, and what the user should physically do. The first task also needs a clear spoken action, not just a label in the HUD.
+
+DEPENDENCIES
+Prompts 11, 12, 21, 36, 57.
+
+PROMPT TO GIVE THE CODING AGENT
+Improve the live onboarding language for calibration and first-task coaching.
+
+Requirements:
+
+when calibration is requested, explicitly explain that it means one clean still frame of the room
+
+state what should be centered in frame during calibration
+
+explain what happens after calibration
+
+when the first task is assigned, speak:
+
+the task name
+
+the exact action
+
+how the user should signal completion
+
+mirror the same instruction in visible operator text so the caller is never dependent on hearing perfectly
+
+EXPECTED OUTPUT
+A clearer first-minute operator experience that explains calibration and the first task directly.
+
+ACCEPTANCE CRITERIA
+
+a first-time user can understand calibration without guessing
+
+the first task is spoken clearly and concretely
+
+visible operator text and spoken instruction match
+
+NOTES / PITFALLS
+Do not use product-internal wording without explanation. “Capture calibration” alone is not enough.
+
+Prompt 59: Low-Visibility / Low-Context Guidance Compensation
+
+PHASE
+Phase 20: Normal-mode dialogue polish after core architecture
+
+GOAL
+Compensate for intentionally low-frequency vision by making the operator ask stronger grounding questions and give clearer corrective guidance.
+
+WHY IT MATTERS
+Ghostline is honest about staged verification and low-frequency vision. That means the dialogue has to carry more of the experience. If the room feed is weak, the operator should become more directive and diagnostic rather than sounding passive.
+
+DEPENDENCIES
+Prompts 17, 21, 23, 27, 28, 34, 57.
+
+PROMPT TO GIVE THE CODING AGENT
+Add a bounded dialogue compensation layer for weak visual context.
+
+Requirements:
+
+when current path mode is low_visibility or verification confidence is weak, increase the clarity of operator guidance
+
+prefer short grounded questions such as:
+
+where is it strongest
+
+is there a doorway in front of you
+
+what flat surface is available
+
+did the sound change when the light changed
+
+make recovery instructions more concrete when the frame is dark, unstable, or poorly centered
+
+keep this deterministic and state-driven
+
+do not pretend the camera saw more than it did
+
+EXPECTED OUTPUT
+A state-aware guidance layer that makes the operator more helpful when visual certainty is low.
+
+ACCEPTANCE CRITERIA
+
+low-visibility sessions feel guided rather than vague
+
+diagnostic questions improve task routing clarity
+
+recovery language becomes more concrete under weak visual conditions
+
+NOTES / PITFALLS
+This is not permission to fake rich vision. The improvement should come from better questions and clearer instructions.

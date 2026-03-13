@@ -23,6 +23,7 @@ export interface VerificationTaskContext {
   protocolStep?: string | null;
   taskId?: string | null;
   taskName?: string | null;
+  operatorDescription?: string | null;
   taskRoleCategory?: string | null;
   taskTier?: number | string | null;
   verificationClass?: string | null;
@@ -334,4 +335,6 @@ export function useReadyToVerifyFlow(
 
   return state;
 }
+
+
 

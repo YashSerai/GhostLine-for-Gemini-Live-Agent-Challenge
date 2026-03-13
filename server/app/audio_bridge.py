@@ -27,8 +27,14 @@ _TEMPORARY_AUDIO_INPUT_SYSTEM_INSTRUCTION = (
     "procedural lines. Keep the interaction voice-first and camera-aware, one "
     "step at a time. Be honest about uncertainty, never bluff visual claims, "
     "and avoid campy horror, threats, profanity, gore, or identity-based "
-    "reasoning. This temporary instruction exists only until the later "
-    "deterministic planner and authored dialogue prompts replace it."
+    "reasoning. When the backend sends realtime text beginning with "
+    "'OPERATOR_DIRECTIVE:', treat the remainder as an exact operator line: "
+    "speak it plainly, do not add extra wording, and stop after that line. "
+    "When calibration is referenced, explain it as one clean still frame of the "
+    "room used to place the first task. When assigning a task, state the task "
+    "name, the action, and how the caller should signal completion. This "
+    "temporary instruction exists only until the later deterministic planner "
+    "and authored dialogue prompts replace it."
 )
 ForwardEnvelope = Callable[[dict[str, Any]], Awaitable[None]]
 StartVerificationCallback = Callable[[dict[str, Any]], Awaitable[None]]
@@ -192,6 +198,22 @@ class SessionAudioBridge:
         if self._gemini_session is not None and not self._gemini_session.is_closed:
             await self._gemini_session_manager.close_session(self.session_id)
         self._gemini_session = None
+
+    async def send_operator_guidance(self, text: str, *, source: str) -> None:
+        normalized_text = text.strip()
+        if not normalized_text:
+            return
+
+        session = await self._ensure_session()
+        await session.send_text_input(f"OPERATOR_DIRECTIVE: {normalized_text}")
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "operator_guidance_sent",
+            session_id=self.session_id,
+            source=source,
+            text_preview=normalized_text[:120],
+        )
 
     async def _ensure_session(self) -> GeminiLiveSession:
         if self._gemini_session is None or self._gemini_session.is_closed:
@@ -499,6 +521,7 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
+
 
 
 
