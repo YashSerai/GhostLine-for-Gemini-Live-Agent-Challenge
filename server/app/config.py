@@ -52,6 +52,24 @@ def _derive_local_client_origins(client_host: str, client_port: int) -> tuple[st
     return tuple(sorted(origins))
 
 
+def _is_cloud_run_runtime() -> bool:
+    return bool(os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_SERVICE"))
+
+
+def _default_server_host() -> str:
+    if _is_cloud_run_runtime():
+        return "0.0.0.0"
+    return "127.0.0.1"
+
+
+def _default_server_port() -> int:
+    for key in ("SERVER_PORT", "PORT"):
+        value = os.getenv(key)
+        if value and value.strip():
+            return int(value)
+    return 8000
+
+
 @dataclass(frozen=True)
 class GeminiLiveSettings:
     project: str
@@ -79,6 +97,11 @@ class MockVerificationSettings:
 
 
 @dataclass(frozen=True)
+class DemoModeSettings:
+    enabled_by_default: bool
+
+
+@dataclass(frozen=True)
 class FirestoreSettings:
     project: str
     database: str
@@ -102,6 +125,7 @@ class Settings:
     cors_origins: tuple[str, ...]
     gemini_live: GeminiLiveSettings
     mock_verification: MockVerificationSettings
+    demo_mode: DemoModeSettings
     firestore: FirestoreSettings
 
 
@@ -110,8 +134,8 @@ def get_settings() -> Settings:
     app_name = os.getenv("APP_NAME", "ghostline")
     app_env = os.getenv("APP_ENV", "development")
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    server_host = os.getenv("SERVER_HOST", "127.0.0.1")
-    server_port = int(os.getenv("SERVER_PORT", "8000"))
+    server_host = os.getenv("SERVER_HOST", _default_server_host())
+    server_port = _default_server_port()
     client_host = os.getenv("CLIENT_HOST", "127.0.0.1")
     client_port = int(os.getenv("CLIENT_PORT", "5173"))
 
@@ -172,6 +196,12 @@ def get_settings() -> Settings:
             default="user_confirmed_only",
         ),
     )
+    demo_mode = DemoModeSettings(
+        enabled_by_default=_parse_bool(
+            os.getenv("DEMO_MODE_DEFAULT"),
+            default=False,
+        ),
+    )
     firestore = FirestoreSettings(
         project=os.getenv("GOOGLE_CLOUD_PROJECT", "").strip(),
         database=os.getenv("FIRESTORE_DATABASE", "(default)").strip() or "(default)",
@@ -194,5 +224,6 @@ def get_settings() -> Settings:
         cors_origins=cors_origins,
         gemini_live=gemini_live,
         mock_verification=mock_verification,
+        demo_mode=demo_mode,
         firestore=firestore,
     )

@@ -1,8 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMicrophoneBridge } from "./audio/useMicrophoneBridge";
 import { useOperatorAudioPlayback } from "./audio/useOperatorAudioPlayback";
 import { useCameraPreview } from "./media/useCameraPreview";
-import { useTranscriptLayer } from "./transcript/useTranscriptLayer";
+import { useTranscriptLayer, type TranscriptEntry } from "./transcript/useTranscriptLayer";
 import { useSoundPlayback } from "./sound/useSoundPlayback";
 import { useSoundCueTriggers } from "./sound/useSoundCueTriggers";
 import { buildGroundingHudSnapshot } from "./hud/groundingHud";
@@ -20,10 +20,35 @@ import {
   type VerificationTaskContext,
 } from "./verification/useReadyToVerifyFlow";
 import { useVerificationResultState } from "./verification/useVerificationResultState";
+import { buildDemoRehearsalHarnessSnapshot } from "./demo/rehearsalHarness";
 import type {
   SessionConnectionStatus,
   TransportLogEntry,
 } from "./session/sessionTypes";
+
+const TRANSCRIPT_STORAGE_KEY = "ghostline.transcript.entries";
+const BACKEND_AUTHORED_OPERATOR_SOURCES = new Set<string>([
+  "session_guidance",
+  "operator_guidance",
+  "demo_mode",
+  "verification_flow",
+  "recovery_ladder",
+  "capability_recovery",
+]);
+
+function parseRouteFlag(name: string): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const rawValue = new URLSearchParams(window.location.search).get(name);
+  if (rawValue === null) {
+    return false;
+  }
+
+  const normalized = rawValue.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
 
 function getTranscriptPlaceholder(
   connectionStatus: SessionConnectionStatus,
@@ -111,6 +136,30 @@ function formatEnvelopeSummary(entry: TransportLogEntry): string {
   }
 
   return `Received ${entry.envelope.type}`;
+}
+
+function formatDemoBargeInStatus(status: string | null): string {
+  switch (status) {
+    case "armed":
+      return "Armed";
+    case "triggered":
+      return "Triggered";
+    case "restated":
+      return "Restated";
+    default:
+      return "Standby";
+  }
+}
+
+function formatDemoNearFailureStatus(status: string | null): string {
+  switch (status) {
+    case "failed_once":
+      return "Failed Once";
+    case "recovered":
+      return "Recovered";
+    default:
+      return "Standby";
+  }
 }
 
 function formatCaptureSummary(timestamp: string): string {
@@ -205,8 +254,26 @@ function buildActiveTaskInstruction(
       ? activeTaskContext.operatorDescription.trim()
       : "Perform the current containment step once, keep the frame readable, then stop.";
 
-  return `Current task: ${taskName}. ${operatorDescription} When finished, say Ready to Verify.`;
+  return `First task: ${taskName}. Exact action: ${operatorDescription} When you are finished, say Ready to Verify or press the Ready to Verify button.`;
 }
+function getLatestBackendAuthoredOperatorLine(
+  entries: readonly TranscriptEntry[],
+): string | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (
+      entry.speaker === "operator" &&
+      entry.status === "final" &&
+      BACKEND_AUTHORED_OPERATOR_SOURCES.has(entry.source) &&
+      entry.text.trim().length > 0
+    ) {
+      return entry.text.trim();
+    }
+  }
+
+  return null;
+}
+
 function getOperatorPlaceholder(
   connectionStatus: SessionConnectionStatus,
   permissionStage: PermissionStage,
@@ -251,7 +318,7 @@ function getOperatorPlaceholder(
   }
 
   if (permissionStage === "request_camera") {
-    return "I need your camera. Grant access now. Keep the room in frame so I can start calibration. Calibration means one clean still frame of the doorway or nearest boundary.";
+    return "I need your camera. Grant access now. Calibration means one clean still frame of the room. Center the doorway or nearest boundary, keep the phone level, and capture one still image. After calibration, I will place the first task for you.";
   }
 
   if (permissionStage === "camera_requesting") {
@@ -275,7 +342,7 @@ function getOperatorPlaceholder(
   }
 
   if (connectionStatus === "connected" && cameraReady && captureFrameCount === 0) {
-    return "Room feed linked. Calibration means one clean still frame so I can place the first task. Keep the phone level, center the doorway or nearest boundary, then capture calibration once.";
+    return "Room feed linked. Calibration means one clean still frame of the room so I can place the first task. Center the doorway or nearest boundary, keep the phone level, capture one still frame, then hold. Once that frame is logged, I will give you the first containment step.";
   }
 
   if (
@@ -305,11 +372,11 @@ function getOperatorPlaceholder(
   }
 
   if (connectionStatus === "connected" && isMicStreaming && operatorAudioChunkCount > 0) {
-    return "Live call active. Use Ready to Verify when a step is complete, request a swap if a task cannot be done, pause if needed, or end the session cleanly from the control bar.";
+    return "Live call active. Use the controls beside the room feed to verify a finished step, request a swap, pause, or end the session cleanly.";
   }
 
   if (connectionStatus === "connected" && isMicStreaming) {
-    return "Microphone stream is live. Waiting for the first operator audio response from Gemini Live while the main control bar carries Ready to Verify, swap, pause, and end.";
+    return "Microphone stream is live. Waiting for the first operator audio response from Gemini Live while the room-feed controls stay armed for verify, swap, pause, and end.";
   }
 
   if (lastError) {
@@ -597,6 +664,7 @@ function App() {
     verificationStatus: verificationResult.status,
   });
   const endTeardownHandledRef = useRef(false);
+  const [isDemoResetting, setIsDemoResetting] = useState(false);
 
   useEffect(() => {
     if (sessionState.state === "paused") {
@@ -636,6 +704,23 @@ function App() {
     microphone.isStreaming,
   );
   const permissionStageLabel = formatPermissionStage(permissionStage);
+  const rehearsalModeRequested = parseRouteFlag("rehearsal");
+  const isDemoMode = sessionState.demoModeEnabled || session.demoModeRequested;
+  const callModeLabel =
+    isDemoMode
+      ? "Ghostline demo mode / fixed safe path"
+      : "Ghostline control surface";
+  const demoBargeInStatusLabel = formatDemoBargeInStatus(
+    sessionState.demoBargeIn?.status ?? null,
+  );
+  const demoNearFailureStatusLabel = formatDemoNearFailureStatus(
+    sessionState.demoNearFailure?.status ?? null,
+  );
+  const showRehearsalHarness = isDemoMode && rehearsalModeRequested;
+  const showDemoOperatorMeta = (sessionState.demoModeEnabled || session.demoModeRequested) && !showRehearsalHarness;
+  const rehearsalHarness = showRehearsalHarness
+    ? buildDemoRehearsalHarnessSnapshot(sessionState)
+    : null;
   const permissionRequestCopy = getPermissionRequestCopy(
     permissionStage,
     microphone.isStreaming,
@@ -683,12 +768,19 @@ function App() {
       camera.cameraReady && camera.captureFrameCount > 0
         ? "task_execution"
         : "frame_guidance",
+    demoModeEnabled: sessionState.demoModeEnabled || session.demoModeRequested,
     isOperatorSpeaking: operatorAudio.isSpeaking,
   });
   const verificationOperatorPlaceholder = verificationResult.awaitingDecision
     ? verificationFlow.operatorLine
     : verificationResult.operatorLine ??
       (verificationFlow.phase !== "captured" ? verificationFlow.operatorLine : null);
+  const latestBackendAuthoredOperatorLine =
+    sessionState.state === "ended" ||
+    sessionState.caseReport !== null ||
+    sessionState.state === "paused"
+      ? null
+      : getLatestBackendAuthoredOperatorLine(transcriptLayer.entries);
   const endedOperatorPlaceholder =
     sessionState.state === "ended" || sessionState.caseReport !== null
       ? "Session ended. Media activity has been stopped. Review the case report and archive reference below."
@@ -700,6 +792,7 @@ function App() {
   const operatorPlaceholder =
     endedOperatorPlaceholder ??
     pausedOperatorPlaceholder ??
+    latestBackendAuthoredOperatorLine ??
     verificationOperatorPlaceholder ??
     taskControls.swapOperatorLine ??
     waitingDialogue.currentLine ??
@@ -755,7 +848,7 @@ function App() {
     permissionStageLabel,
   });
 
-  const transportRows = session.recentMessages.slice(0, 4);
+  const transportRows = session.recentMessages.slice(0, 2);
   const areTaskControlsVisible = session.status === "connected";
   const areTaskControlsArmed =
     areTaskControlsVisible && permissionStage === "permissions_ready";
@@ -765,16 +858,19 @@ function App() {
     sessionState.state === "ended" ||
     sessionState.state === "case_report" ||
     sessionState.caseReport !== null;
-  const controlBarCopy = hasEndedReportView
-    ? "Session ended. Media activity was stopped cleanly and the report view is now staged below."
-    : sessionState.state === "paused"
-      ? "Session paused. Resume the hotline to continue task flow. Verification, swap, and recovery stay blocked until the line is resumed."
-      : buildVerificationControlCopy(
-          isTransportActive,
-          permissionStage,
-          verificationFlow.phase,
-          verificationResult,
-        );
+  const controlBarCopy = isDemoResetting
+    ? "Demo reset is tearing down media, transport, and staged session state now. The shell will reload into a fresh demo-ready take."
+    : hasEndedReportView
+      ? "Session ended. Media activity was stopped cleanly and the report view is now staged below."
+      : sessionState.state === "paused"
+        ? "Session paused. Resume the hotline to continue task flow. Verification, swap, and recovery stay blocked until the line is resumed."
+        : buildVerificationControlCopy(
+            isTransportActive,
+            permissionStage,
+            verificationFlow.phase,
+            verificationResult,
+          );
+  const canDemoReset = isDemoMode && !isDemoResetting;
   const isRecoveryRerouteRequired =
     verificationResult.status === "unconfirmed" &&
     verificationResult.retryAllowed === false;
@@ -788,7 +884,8 @@ function App() {
     !isRecoveryRerouteRequired &&
     !taskControls.readyToVerifyPending &&
     !taskControls.pausePending &&
-    !taskControls.endSessionPending;
+    !taskControls.endSessionPending &&
+    !isDemoResetting;
   const canSwapTask =
     areTaskControlsArmed &&
     sessionState.allowedActions.canSwap &&
@@ -796,18 +893,21 @@ function App() {
     !verificationResult.awaitingDecision &&
     !taskControls.swapPending &&
     !taskControls.pausePending &&
-    !taskControls.endSessionPending;
+    !taskControls.endSessionPending &&
+    !isDemoResetting;
   const canPauseSession =
     areTaskControlsArmed &&
     (sessionState.allowedActions.canPause || sessionState.allowedActions.canResume) &&
     !verificationFlow.isBusy &&
     !verificationResult.awaitingDecision &&
     !taskControls.pausePending &&
-    !taskControls.endSessionPending;
+    !taskControls.endSessionPending &&
+    !isDemoResetting;
   const canEndSession =
     areTaskControlsVisible &&
     (sessionState.allowedActions.canEnd || !sessionState.hasSnapshot) &&
-    !taskControls.endSessionPending;
+    !taskControls.endSessionPending &&
+    !isDemoResetting;
   const subtitlePlaceholder = getTranscriptPlaceholder(
     session.status,
     microphone.isStreaming,
@@ -865,7 +965,7 @@ function App() {
   }
 
   async function handleStartCall(): Promise<void> {
-    if (isTransportActive) {
+    if (isTransportActive || isDemoResetting) {
       return;
     }
 
@@ -875,14 +975,50 @@ function App() {
     session.connect();
   }
 
+  async function handleDemoReset(): Promise<void> {
+    if (!isDemoMode || isDemoResetting) {
+      return;
+    }
+
+    setIsDemoResetting(true);
+
+    try {
+      if (isTransportActive) {
+        session.sendMessage("stop", {
+          reason: "demo_reset",
+        });
+      }
+
+      operatorAudio.interruptPlayback();
+      soundPlayback.stopAmbientBed();
+      transcriptLayer.resetTranscript();
+
+      try {
+        window.sessionStorage.removeItem(TRANSCRIPT_STORAGE_KEY);
+      } catch {
+        // Demo reset clears persisted transcript state on a best-effort basis.
+      }
+
+      await microphone.stopMicrophone("demo_reset");
+      await camera.stopCamera();
+
+      window.setTimeout(() => {
+        session.disconnect();
+        window.location.assign(window.location.href);
+      }, 180);
+    } catch {
+      window.location.assign(window.location.href);
+    }
+  }
+
   return (
-    <div className="hotline-shell">
+    <div className={`hotline-shell${isDemoMode ? " hotline-shell-demo-readable" : ""}${isDemoResetting ? " hotline-shell-demo-resetting" : ""}`}>
       <header className="hero-panel panel">
         <div>
           <p className="eyebrow">Ghostline // Live Agent Shell</p>
-          <h1>HauntLens Containment Hotline</h1>
+          <h1>Ghostline Containment Hotline</h1>
           <p className="hero-copy">
-            The Archivist, Containment Desk is standing by. Ready to Verify, swap, pause, and end requests now stay visible and structured beside the live call.
+            The Archivist, Containment Desk leads the room step by step. Camera, calibration, verification, recovery, and report flow now stay visible beside the live call.
           </p>
         </div>
 
@@ -926,7 +1062,7 @@ function App() {
           </div>
 
           <div className="operator-script">
-            <p className="operator-label">Reserved Operator Text</p>
+            <p className="operator-label">Primary Operator Guidance</p>
             <blockquote>{operatorPlaceholder}</blockquote>
           </div>
 
@@ -962,7 +1098,7 @@ function App() {
           <div className="operator-meta">
             <div>
               <span className="meta-label">Call Mode</span>
-              <strong>Ghostline control surface</strong>
+              <strong>{callModeLabel}</strong>
             </div>
             <div>
               <span className="meta-label">Transport</span>
@@ -994,6 +1130,42 @@ function App() {
               <span className="meta-label">Last Cue</span>
               <strong>{soundTriggerState.lastTriggeredCue ?? "None yet"}</strong>
             </div>
+            {showDemoOperatorMeta ? (
+              <div>
+                <span className="meta-label">Demo Barge-In</span>
+                <strong>{demoBargeInStatusLabel}</strong>
+              </div>
+            ) : null}
+            {showDemoOperatorMeta ? (
+              <div>
+                <span className="meta-label">Cue Phrase</span>
+                <strong>{sessionState.demoBargeIn?.triggerPhrase ?? "Archivist, wait. Say that again."}</strong>
+              </div>
+            ) : null}
+            {showDemoOperatorMeta ? (
+              <div>
+                <span className="meta-label">Interrupt On</span>
+                <strong>{sessionState.demoBargeIn?.targetLine ?? "That matches threshold activity. Keep the room controlled and continue with the next step."}</strong>
+              </div>
+            ) : null}
+            {showDemoOperatorMeta ? (
+              <div>
+                <span className="meta-label">Demo Recovery Beat</span>
+                <strong>{demoNearFailureStatusLabel}</strong>
+              </div>
+            ) : null}
+            {showDemoOperatorMeta ? (
+              <div>
+                <span className="meta-label">Failure Type</span>
+                <strong>{sessionState.demoNearFailure?.failureType?.replace(/_/g, " ") ?? "temporary low light"}</strong>
+              </div>
+            ) : null}
+            {showDemoOperatorMeta ? (
+              <div>
+                <span className="meta-label">Recovery Task</span>
+                <strong>{sessionState.demoNearFailure?.taskId ?? "T3"}</strong>
+              </div>
+            ) : null}
           </div>
 
           {activeIssue ? (
@@ -1205,6 +1377,132 @@ function App() {
               </article>
             )}
           </div>
+          <section className="panel control-bar camera-control-deck" aria-label="Session controls">
+        <div className="control-bar-copy">
+          <div>
+            <p className="panel-kicker">Session Controls</p>
+            <h2>Session Controls</h2>
+            <p className="control-copy">{controlBarCopy}</p>
+          </div>
+
+          {taskControls.lastNotice ? (
+            <article
+              className={`control-status-card control-status-card-${taskControls.lastNotice.tone}`}
+            >
+              <span className="control-status-title">{taskControls.lastNotice.title}</span>
+              <p className="control-status-body">{taskControls.lastNotice.body}</p>
+            </article>
+          ) : null}
+
+          {isDemoMode ? (
+            <article className="control-status-card control-status-card-demo-support">
+              <span className="control-status-title">Demo Support</span>
+              <p className="control-status-body">
+                Readability mode is active for recording. Demo Reset clears transcript, media,
+                staged report state, and the current session take in one step.
+              </p>
+            </article>
+          ) : null}
+        </div>
+
+        <div className="control-actions">
+          {!isTransportActive ? (
+            <button
+              type="button"
+              className={`start-call-button start-call-button-${session.status}`}
+              disabled={isDemoResetting}
+              onClick={() => {
+                void handleStartCall();
+              }}
+            >
+              {session.status === "error" ? "Reconnect Call" : "Start Call"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`start-call-button start-call-button-${session.status}`}
+              disabled
+            >
+              {session.status === "connected" ? "Call Live" : connectionLabel}
+            </button>
+          )}
+
+          {areTaskControlsVisible && !areTaskControlsArmed ? (
+            <span className="control-chip">
+              Controls arm after in-call camera and mic approval
+            </span>
+          ) : null}
+
+          {areTaskControlsArmed ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!canReadyToVerify}
+              onClick={() => {
+                taskControls.requestReadyToVerify({
+                  taskContext: activeTaskContext,
+                });
+              }}
+            >
+              {taskControls.readyToVerifyPending ? "Sending Verify Request" : "Ready to Verify"}
+            </button>
+          ) : null}
+
+          {areTaskControlsArmed ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!canSwapTask}
+              onClick={() => {
+                taskControls.requestSwapTask({
+                  taskContext: activeTaskContext,
+                });
+              }}
+            >
+              {taskControls.swapPending ? "Sending Swap Request" : "Can't Do This / Swap Task"}
+            </button>
+          ) : null}
+
+          {areTaskControlsArmed ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!canPauseSession}
+              onClick={() => {
+                taskControls.requestPauseSession(!pauseActionIsResume);
+              }}
+            >
+              {taskControls.pausePending ? `Sending ${pauseButtonLabel}` : pauseButtonLabel}
+            </button>
+          ) : null}
+
+          {areTaskControlsVisible ? (
+            <button
+              type="button"
+              className="danger-button"
+              disabled={!canEndSession}
+              onClick={() => {
+                taskControls.requestEndSession();
+              }}
+            >
+              {taskControls.endSessionPending ? "Ending Session" : "End Session"}
+            </button>
+          ) : null}
+
+          {isDemoMode ? (
+            <button
+              type="button"
+              className="secondary-button demo-reset-button"
+              disabled={!canDemoReset}
+              onClick={() => {
+                void handleDemoReset();
+              }}
+            >
+              {isDemoResetting ? "Resetting Demo" : "Demo Reset"}
+            </button>
+          ) : null}
+        </div>
+          </section>
         </section>
 
         <section className="panel subtitles-panel" aria-label="Subtitles area">
@@ -1293,6 +1591,62 @@ function App() {
           </div>
         </aside>
       </main>
+      {showRehearsalHarness && rehearsalHarness ? (
+        <section className="panel rehearsal-panel" aria-label="Demo rehearsal harness">
+          <div className="panel-heading">
+            <div>
+              <p className="panel-kicker">Demo Rehearsal Harness</p>
+              <h2>Fixed Path Checklist</h2>
+            </div>
+            <span className="panel-tag panel-tag-warning">Developer View</span>
+          </div>
+
+          <div className="rehearsal-summary-row">
+            <p className="control-copy">{rehearsalHarness.summary}</p>
+            <span className="control-chip">Use Demo Reset between takes</span>
+          </div>
+
+          <div className="rehearsal-grid">
+            <section className="rehearsal-card">
+              <p className="meta-label">Key Checks</p>
+              <div className="rehearsal-check-list">
+                {rehearsalHarness.checks.map((check) => (
+                  <article
+                    className={`rehearsal-check rehearsal-check-${check.status}`}
+                    key={check.label}
+                  >
+                    <div className="rehearsal-check-header">
+                      <strong>{check.label}</strong>
+                      <span className="control-chip">{check.status}</span>
+                    </div>
+                    <p className="control-status-body">{check.detail}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="rehearsal-card">
+              <p className="meta-label">Fixed Task Path</p>
+              <div className="rehearsal-task-list">
+                {rehearsalHarness.taskProgress.map((task) => (
+                  <article
+                    className={`rehearsal-task rehearsal-task-${task.status}`}
+                    key={task.taskId}
+                  >
+                    <div className="rehearsal-task-header">
+                      <strong>
+                        {task.taskName} <span>({task.taskId})</span>
+                      </strong>
+                      <span className="control-chip">{task.status}</span>
+                    </div>
+                    <p className="control-status-body">{task.detail}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
+        </section>
+      ) : null}
       {sessionState.caseReport ? (
         <section className={`panel case-report-panel case-report-panel-${sessionState.caseReport.closingTemplate.tone}`} aria-label="Case report">
           <div className="panel-heading">
@@ -1391,113 +1745,38 @@ function App() {
           </div>
         </section>
       ) : null}
-      <footer className="panel control-bar" aria-label="Control bar"> 
-        <div className="control-bar-copy">
-          <div>
-            <p className="panel-kicker">Control Bar</p>
-            <h2>Session Controls</h2>
-            <p className="control-copy">{controlBarCopy}</p>
-          </div>
-
-          {taskControls.lastNotice ? (
-            <article
-              className={`control-status-card control-status-card-${taskControls.lastNotice.tone}`}
-            >
-              <span className="control-status-title">{taskControls.lastNotice.title}</span>
-              <p className="control-status-body">{taskControls.lastNotice.body}</p>
-            </article>
-          ) : null}
-        </div>
-
-        <div className="control-actions">
-          {!isTransportActive ? (
-            <button
-              type="button"
-              className={`start-call-button start-call-button-${session.status}`}
-              onClick={() => {
-                void handleStartCall();
-              }}
-            >
-              {session.status === "error" ? "Reconnect Call" : "Start Call"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={`start-call-button start-call-button-${session.status}`}
-              disabled
-            >
-              {session.status === "connected" ? "Call Live" : connectionLabel}
-            </button>
-          )}
-
-          {areTaskControlsVisible && !areTaskControlsArmed ? (
-            <span className="control-chip">
-              Controls arm after in-call camera and mic approval
-            </span>
-          ) : null}
-
-          {areTaskControlsArmed ? (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={!canReadyToVerify}
-              onClick={() => {
-                taskControls.requestReadyToVerify({
-                  taskContext: activeTaskContext,
-                });
-              }}
-            >
-              {taskControls.readyToVerifyPending ? "Sending Verify Request" : "Ready to Verify"}
-            </button>
-          ) : null}
-
-          {areTaskControlsArmed ? (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={!canSwapTask}
-              onClick={() => {
-                taskControls.requestSwapTask({
-                  taskContext: activeTaskContext,
-                });
-              }}
-            >
-              {taskControls.swapPending ? "Sending Swap Request" : "Can't Do This / Swap Task"}
-            </button>
-          ) : null}
-
-          {areTaskControlsArmed ? (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={!canPauseSession}
-              onClick={() => {
-                taskControls.requestPauseSession(!pauseActionIsResume);
-              }}
-            >
-              {taskControls.pausePending ? `Sending ${pauseButtonLabel}` : pauseButtonLabel}
-            </button>
-          ) : null}
-
-          {areTaskControlsVisible ? (
-            <button
-              type="button"
-              className="danger-button"
-              disabled={!canEndSession}
-              onClick={() => {
-                taskControls.requestEndSession();
-              }}
-            >
-              {taskControls.endSessionPending ? "Ending Session" : "End Session"}
-            </button>
-          ) : null}
-        </div>
-      </footer>
     </div>
   );
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

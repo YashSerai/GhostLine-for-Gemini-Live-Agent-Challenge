@@ -13,9 +13,28 @@ import {
 
 const DEFAULT_SESSION_WS_URL = "ws://127.0.0.1:8000/ws/session";
 
+function parseDemoModeRouteFlag(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const rawValue = params.get("demo");
+  if (rawValue === null) {
+    return false;
+  }
+
+  const normalized = rawValue.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
 function getDefaultManagerOptions(): WebSocketSessionManagerOptions {
+  const demoModeRequested = parseDemoModeRouteFlag();
   return {
     url: import.meta.env.VITE_SESSION_WS_URL ?? DEFAULT_SESSION_WS_URL,
+    clientConnectPayload: {
+      demoMode: demoModeRequested,
+    },
   };
 }
 
@@ -46,6 +65,8 @@ export function useSessionWebSocket() {
     payload: Record<string, unknown> = {},
   ) => manager.sendMessage(type, payload);
 
+  const managerOptions = getDefaultManagerOptions();
+
   return {
     ...snapshot,
     connect,
@@ -54,6 +75,7 @@ export function useSessionWebSocket() {
     subscribeToEnvelopes,
     sendEnvelope,
     sendMessage,
-    sessionUrl: getDefaultManagerOptions().url,
+    demoModeRequested: Boolean(managerOptions.clientConnectPayload?.demoMode),
+    sessionUrl: managerOptions.url,
   };
 }

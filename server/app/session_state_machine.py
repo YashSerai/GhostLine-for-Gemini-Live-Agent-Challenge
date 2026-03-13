@@ -8,6 +8,9 @@ import logging
 from typing import Any, Literal, Protocol
 
 from .case_report import build_case_report_artifact
+from .demo_barge_in import DEMO_BARGE_IN_SCRIPT
+from .demo_recovery import DEMO_NEAR_FAILURE_SCRIPT
+from .demo_mode import DEMO_MODE_PATH_MODE, build_demo_protocol_plan
 from .capability_profile import (
     ObservedAffordances,
     QualityMetrics,
@@ -43,6 +46,9 @@ SessionStateName = Literal[
     "ended",
 ]
 TurnStatus = Literal["idle", "speaking", "listening", "interrupted"]
+PlanningMode = Literal["normal", "demo"]
+DemoBargeInStatus = Literal["idle", "armed", "triggered", "restated"]
+DemoNearFailureStatus = Literal["idle", "failed_once", "recovered"]
 
 
 class SessionPersistenceStore(Protocol):
@@ -120,6 +126,7 @@ class SessionStateMachine:
         forward_envelope: ForwardEnvelope,
         incident_store: IncidentClassificationStore | None = None,
         session_store: SessionPersistenceStore | None = None,
+        demo_mode_enabled: bool = False,
     ) -> None:
         self.session_id = session_id
         self._forward_envelope = forward_envelope
@@ -127,6 +134,8 @@ class SessionStateMachine:
         self._session_store = session_store
         self._session_document_created = False
         self.state: SessionStateName = "init"
+        self.demo_mode_enabled = demo_mode_enabled
+        self.planning_mode: PlanningMode = "demo" if demo_mode_enabled else "normal"
         self.resume_state: SessionStateName | None = None
         self.plan: ProtocolPlan | None = None
         self.active_task_index = -1
@@ -149,9 +158,26 @@ class SessionStateMachine:
         self.last_verified_item: str | None = None
         self.turn_status: TurnStatus = "idle"
         self.interruption_count = 0
+        self.demo_barge_in_status: DemoBargeInStatus | None = "idle" if demo_mode_enabled else None
+        self.demo_barge_in_target_line: str | None = (
+            DEMO_BARGE_IN_SCRIPT.target_line if demo_mode_enabled else None
+        )
+        self.demo_barge_in_trigger_phrase: str | None = (
+            DEMO_BARGE_IN_SCRIPT.trigger_phrase if demo_mode_enabled else None
+        )
+        self.demo_barge_in_matched_transcript: str | None = None
+        self.demo_near_failure_status: DemoNearFailureStatus | None = "idle" if demo_mode_enabled else None
+        self.demo_near_failure_failure_type: str | None = (
+            DEMO_NEAR_FAILURE_SCRIPT.failure_type if demo_mode_enabled else None
+        )
+        self.demo_near_failure_task_id: str | None = (
+            DEMO_NEAR_FAILURE_SCRIPT.task_id if demo_mode_enabled else None
+        )
         self.camera_ready = False
         self.camera_width: int | None = None
         self.camera_height: int | None = None
+        self.calibration_captured_at: str | None = None
+        self.calibration_capture_count = 0
         self.microphone_streaming = False
         self.transcript_references: list[dict[str, Any]] = []
         self.task_history: list[dict[str, Any]] = []
@@ -167,6 +193,8 @@ class SessionStateMachine:
             "session_started",
             current_step=self.current_step,
             planned_task_count=(len(self.plan.selected_tasks) if self.plan is not None else 0),
+            planning_mode=self.planning_mode,
+            demo_mode_enabled=self.demo_mode_enabled,
         )
         await self._create_session_document()
         await self.emit_snapshot(persist=False)
@@ -177,6 +205,10 @@ class SessionStateMachine:
         self.camera_ready = permission == "granted" and preview is True
         self.camera_width = _int_or_none(payload.get("width")) if self.camera_ready else None
         self.camera_height = _int_or_none(payload.get("height")) if self.camera_ready else None
+
+        if not self.camera_ready:
+            self.calibration_captured_at = None
+            self.calibration_capture_count = 0
 
         if self.state != "paused":
             if self.camera_ready and self.state == "camera_request":
@@ -194,11 +226,56 @@ class SessionStateMachine:
 
         await self.emit_snapshot()
 
+    def configure_demo_mode(self, enabled: bool) -> None:
+        if self.plan is not None or self.state != "init":
+            raise SessionStateMachineError(
+                "Demo mode must be configured before the session plan is created."
+            )
+        self.demo_mode_enabled = enabled
+        self.planning_mode = "demo" if enabled else "normal"
+        self.demo_barge_in_status = "idle" if enabled else None
+        self.demo_barge_in_target_line = DEMO_BARGE_IN_SCRIPT.target_line if enabled else None
+        self.demo_barge_in_trigger_phrase = DEMO_BARGE_IN_SCRIPT.trigger_phrase if enabled else None
+        self.demo_barge_in_matched_transcript = None
+        self.demo_near_failure_status = "idle" if enabled else None
+        self.demo_near_failure_failure_type = (
+            DEMO_NEAR_FAILURE_SCRIPT.failure_type if enabled else None
+        )
+        self.demo_near_failure_task_id = (
+            DEMO_NEAR_FAILURE_SCRIPT.task_id if enabled else None
+        )
+
     async def handle_mic_status(self, payload: dict[str, Any]) -> None:
         self.microphone_streaming = payload.get("streaming") is True
 
-        if self.microphone_streaming and self.state == "calibration":
+        if (
+            self.microphone_streaming
+            and self.state == "calibration"
+            and self.calibration_captured_at is not None
+        ):
             self._assign_next_task("mic_stream_ready")
+            self._transition("waiting_ready", "task_staged")
+
+        await self.emit_snapshot()
+
+    async def handle_calibration_status(self, payload: dict[str, Any]) -> None:
+        status = _string_or_none(payload.get("status"))
+        if status != "captured":
+            raise SessionStateMachineError("Calibration payload must include status=captured.")
+        if not self.camera_ready:
+            raise SessionStateMachineError("Calibration cannot be captured before the room feed is live.")
+
+        captured_at = _string_or_none(payload.get("capturedAt")) or _utc_now_iso()
+        self.calibration_captured_at = captured_at
+        self.calibration_capture_count += 1
+        self._log_cloud_proof_event(
+            "calibration_captured",
+            calibration_capture_count=self.calibration_capture_count,
+            calibration_captured_at=self.calibration_captured_at,
+        )
+
+        if self.state == "calibration" and self.microphone_streaming:
+            self._assign_next_task("calibration_captured")
             self._transition("waiting_ready", "task_staged")
 
         await self.emit_snapshot()
@@ -312,6 +389,35 @@ class SessionStateMachine:
             return self._observe_swap_outcome(payload)
         return False
 
+    def update_demo_barge_in(self, payload: dict[str, Any]) -> bool:
+        next_status = _string_or_none(payload.get("status"))
+        next_target_line = _string_or_none(payload.get("targetLine"))
+        next_trigger_phrase = _string_or_none(payload.get("triggerPhrase"))
+        next_matched_transcript = _string_or_none(payload.get("matchedTranscriptSnippet"))
+
+        changed = False
+        if self.demo_barge_in_status != next_status:
+            self.demo_barge_in_status = next_status
+            changed = True
+        if self.demo_barge_in_target_line != next_target_line:
+            self.demo_barge_in_target_line = next_target_line
+            changed = True
+        if self.demo_barge_in_trigger_phrase != next_trigger_phrase:
+            self.demo_barge_in_trigger_phrase = next_trigger_phrase
+            changed = True
+        if self.demo_barge_in_matched_transcript != next_matched_transcript:
+            self.demo_barge_in_matched_transcript = next_matched_transcript
+            changed = True
+
+        if changed and next_status is not None:
+            self._log_cloud_proof_event(
+                "demo_barge_in_status_changed",
+                demo_barge_in_status=next_status,
+                matched_transcript_snippet=next_matched_transcript,
+            )
+
+        return changed
+
     async def emit_snapshot(self, *, persist: bool = True) -> None:
         snapshot = self.to_payload()
         if persist:
@@ -365,6 +471,7 @@ class SessionStateMachine:
             "resumeState": self.resume_state,
             "currentStep": self.current_step,
             "currentTaskContext": self.current_task_context,
+            "demoModeEnabled": self.demo_mode_enabled,
             "plannedTasks": planned_tasks,
             "protocolStepMapping": protocol_mapping,
             "activeTaskIndex": self.active_task_index,
@@ -383,14 +490,23 @@ class SessionStateMachine:
             "currentPathMode": self.current_path_mode,
             "turnStatus": self.turn_status,
             "interruptionCount": self.interruption_count,
+            "demoBargeInStatus": self.demo_barge_in_status,
+            "demoBargeInTargetLine": self.demo_barge_in_target_line,
+            "demoBargeInTriggerPhrase": self.demo_barge_in_trigger_phrase,
             "cameraReady": self.camera_ready,
+            "calibrationCapturedAt": self.calibration_captured_at,
+            "calibrationCaptureCount": self.calibration_capture_count,
             "microphoneStreaming": self.microphone_streaming,
+            "demoNearFailureStatus": self.demo_near_failure_status,
+            "demoNearFailureFailureType": self.demo_near_failure_failure_type,
+            "demoNearFailureTaskId": self.demo_near_failure_task_id,
             "transcriptReferences": self.transcript_references[-_MAX_HISTORY:],
             "transitionHistory": self.transition_history[-_MAX_HISTORY:],
             "allowedActions": self._build_allowed_actions(),
             "endedReason": self.ended_reason,
             "caseReport": self.case_report_payload,
             "finalVerdict": self.final_verdict or self._derive_final_verdict(),
+            "planningMode": self.planning_mode,
         }
 
     def _observe_transcript(self, payload: dict[str, Any]) -> bool:
@@ -436,6 +552,19 @@ class SessionStateMachine:
         self.recovery_attempt_count = _int_or_none(payload.get("recoveryAttemptCount"))
         self.recovery_attempt_limit = _int_or_none(payload.get("recoveryAttemptLimit"))
         self.recovery_reroute_required = payload.get("recoveryRerouteRequired") is True
+        next_demo_near_failure_status = _string_or_none(payload.get("demoNearFailureStatus"))
+        next_demo_near_failure_failure_type = _string_or_none(payload.get("demoNearFailureFailureType"))
+        next_demo_near_failure_task_id = _string_or_none(payload.get("demoNearFailureTaskId"))
+        if self.demo_near_failure_status != next_demo_near_failure_status:
+            self.demo_near_failure_status = next_demo_near_failure_status
+            self._log_cloud_proof_event(
+                "demo_near_failure_status_changed",
+                demo_near_failure_status=next_demo_near_failure_status,
+                demo_near_failure_task_id=next_demo_near_failure_task_id,
+                demo_near_failure_failure_type=next_demo_near_failure_failure_type,
+            )
+        self.demo_near_failure_failure_type = next_demo_near_failure_failure_type
+        self.demo_near_failure_task_id = next_demo_near_failure_task_id
         self.verification_history.append(
             {
                 "at": _utc_now_iso(),
@@ -531,6 +660,11 @@ class SessionStateMachine:
 
     def _ensure_plan(self) -> None:
         if self.plan is not None:
+            return
+
+        if self.demo_mode_enabled:
+            self.plan = build_demo_protocol_plan()
+            self.current_path_mode = DEMO_MODE_PATH_MODE
             return
 
         profile = self._build_live_capability_profile()
@@ -876,6 +1010,11 @@ def _utc_now_iso() -> str:
 
 
 __all__ = ["SessionStateMachine", "SessionStateMachineError"]
+
+
+
+
+
 
 
 

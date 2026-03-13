@@ -3,6 +3,7 @@ export const CLIENT_SESSION_MESSAGE_TYPES = [
   "mic_status",
   "audio_chunk",
   "camera_status",
+  "calibration_status",
   "transcript",
   "frame",
   "verify_request",
@@ -62,3 +63,4 @@ export interface SessionManagerSnapshot {
 export type SessionEnvelopeListener = (
   envelope: SessionEnvelope<string>,
 ) => void;
+

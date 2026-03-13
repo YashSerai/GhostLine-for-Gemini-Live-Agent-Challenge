@@ -1,0 +1,8 @@
+.gcloudignore
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+server-verify.log
+server-verify.pid
+README.md

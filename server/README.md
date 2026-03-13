@@ -25,11 +25,26 @@ If `.venv` already exists, run the server with:
 & '.\.venv\Scripts\python.exe' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+## Cloud Run Deployment
+
+Cloud Run deployment files now live here:
+
+- [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\Dockerfile](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\Dockerfile)
+- [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\cloud_run_entrypoint.py](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\cloud_run_entrypoint.py)
+- [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\.dockerignore](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\.dockerignore)
+- [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\.gcloudignore](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\.gcloudignore)
+
+Deployment notes are in:
+
+- [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_RUN_DEPLOYMENT.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_RUN_DEPLOYMENT.md)
+- [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md)
+
 ## Endpoints
 
 Health endpoints:
 - `GET /healthz`
 - `GET /readyz`
+- `GET /ops/proof/active-session`
 
 WebSocket endpoint:
 - `ws://127.0.0.1:8000/ws/session`
@@ -46,33 +61,15 @@ Accepted client message types:
 - `pause`
 - `stop`
 
-Server-generated transport messages during this checkpoint:
-- ack envelopes that mirror the accepted message type
-- `operator_audio_chunk`
-- `operator_interruption`
-- `transcript`
-- `error`
-
 ## Environment Notes
 
-The backend loads the repo-root `.env` automatically.
+The backend loads the repo-root `.env` automatically in local development.
 Relative `GOOGLE_APPLICATION_CREDENTIALS` paths are resolved from the repo root so the same `.env` file can be reused from local dev commands.
 
 Recommended practice:
 - keep the Google service-account JSON outside the repo
 - store only its path in `.env`
+- on Cloud Run, prefer attaching a runtime service account instead of mounting a credentials file
 
-## Current Backend Scope
 
-The backend now covers Prompts 4, 6, 8, 9, 10, and 13:
 
-- FastAPI app with config, health endpoints, and structured logging
-- session WebSocket gateway with guarded JSON envelopes
-- backend Gemini Live session manager on Vertex AI
-- client mic PCM forwarding to Gemini Live
-- Gemini operator audio streamed back to the client as low-latency chunks
-- interruption metadata forwarded as a playback-control hook for later prompts
-- Gemini Live transcript events forwarded to the client transcript layer
-- logging for audio bridge start, stop, input forwarding, output forwarding, and transcript forwarding
-
-Camera frames, planner logic, verification, and case reports remain out of scope until later prompts.

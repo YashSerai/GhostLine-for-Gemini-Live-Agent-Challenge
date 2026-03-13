@@ -47,7 +47,37 @@ export interface CaseReportArtifact {
   tasks: CaseReportTaskEntry[];
 }
 
+export interface SessionPlannedTaskEntry {
+  taskId: string;
+  taskName: string;
+  taskRoleCategory: string;
+  taskTier: number;
+}
+
+export interface SessionTaskHistoryEntry {
+  at: string | null;
+  outcome: string;
+  protocolStep: string | null;
+  reason: string | null;
+  taskId: string;
+  taskName: string | null;
+}
+
+export interface DemoBargeInState {
+  matchedTranscript: string | null;
+  status: "idle" | "armed" | "triggered" | "restated" | null;
+  targetLine: string | null;
+  triggerPhrase: string | null;
+}
+
+export interface DemoNearFailureState {
+  failureType: string | null;
+  status: "idle" | "failed_once" | "recovered" | null;
+  taskId: string | null;
+}
+
 export interface SessionStateSnapshot {
+  activeTaskIndex: number | null;
   allowedActions: SessionAllowedActions;
   blockReason: string | null;
   caseReport: CaseReportArtifact | null;
@@ -55,17 +85,22 @@ export interface SessionStateSnapshot {
   currentPathMode: string | null;
   currentStep: string | null;
   currentTaskContext: VerificationTaskContext | null;
+  demoModeEnabled: boolean;
+  demoBargeIn: DemoBargeInState | null;
+  demoNearFailure: DemoNearFailureState | null;
   endedReason: string | null;
   finalVerdict: "secured" | "partial" | "inconclusive" | null;
   hasSnapshot: boolean;
   interruptionCount: number;
   lastVerifiedItem: string | null;
+  plannedTasks: SessionPlannedTaskEntry[];
   recoveryAttemptCount: number | null;
   recoveryAttemptLimit: number | null;
   recoveryRerouteRequired: boolean;
   recoveryStep: string | null;
   state: string | null;
   swapCount: number;
+  taskHistory: SessionTaskHistoryEntry[];
   turnStatus: string | null;
   verificationStatus: string | null;
 }
@@ -84,6 +119,7 @@ const IDLE_ALLOWED_ACTIONS: SessionAllowedActions = {
 };
 
 const IDLE_STATE: SessionStateSnapshot = {
+  activeTaskIndex: null,
   allowedActions: IDLE_ALLOWED_ACTIONS,
   blockReason: null,
   caseReport: null,
@@ -91,20 +127,87 @@ const IDLE_STATE: SessionStateSnapshot = {
   currentPathMode: null,
   currentStep: null,
   currentTaskContext: null,
+  demoModeEnabled: false,
+  demoBargeIn: null,
+  demoNearFailure: null,
   endedReason: null,
   finalVerdict: null,
   hasSnapshot: false,
   interruptionCount: 0,
   lastVerifiedItem: null,
+  plannedTasks: [],
   recoveryAttemptCount: null,
   recoveryAttemptLimit: null,
   recoveryRerouteRequired: false,
   recoveryStep: null,
   state: null,
   swapCount: 0,
+  taskHistory: [],
   turnStatus: null,
   verificationStatus: null,
 };
+
+function getString(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function getInteger(payload: Record<string, unknown>, key: string): number | null {
+  const value = payload[key];
+  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : null;
+}
+
+function parseDemoBargeInState(payload: Record<string, unknown>): DemoBargeInState | null {
+  const statusValue = getString(payload, "demoBargeInStatus");
+  const status =
+    statusValue === "idle" ||
+    statusValue === "armed" ||
+    statusValue === "triggered" ||
+    statusValue === "restated"
+      ? statusValue
+      : null;
+  const targetLine = getString(payload, "demoBargeInTargetLine");
+  const triggerPhrase = getString(payload, "demoBargeInTriggerPhrase");
+  const matchedTranscript = getString(payload, "demoBargeInMatchedTranscript");
+
+  if (
+    status === null &&
+    targetLine === null &&
+    triggerPhrase === null &&
+    matchedTranscript === null
+  ) {
+    return null;
+  }
+
+  return {
+    matchedTranscript,
+    status,
+    targetLine,
+    triggerPhrase,
+  };
+}
+
+function parseDemoNearFailureState(payload: Record<string, unknown>): DemoNearFailureState | null {
+  const statusValue = getString(payload, "demoNearFailureStatus");
+  const status =
+    statusValue === "idle" ||
+    statusValue === "failed_once" ||
+    statusValue === "recovered"
+      ? statusValue
+      : null;
+  const failureType = getString(payload, "demoNearFailureFailureType");
+  const taskId = getString(payload, "demoNearFailureTaskId");
+
+  if (status === null && failureType === null && taskId === null) {
+    return null;
+  }
+
+  return {
+    failureType,
+    status,
+    taskId,
+  };
+}
 
 function parseTaskContext(value: unknown): VerificationTaskContext | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -127,16 +230,6 @@ function parseAllowedActions(value: unknown): SessionAllowedActions {
     canSwap: record.canSwap === true,
     canVerify: record.canVerify === true,
   };
-}
-
-function getString(payload: Record<string, unknown>, key: string): string | null {
-  const value = payload[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
-function getInteger(payload: Record<string, unknown>, key: string): number | null {
-  const value = payload[key];
-  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : null;
 }
 
 function parseCaseReportTaskEntry(value: unknown): CaseReportTaskEntry | null {
@@ -213,6 +306,70 @@ function parseCaseReportClosingTemplate(value: unknown): CaseReportClosingTempla
   return { closingLine, heading, tone };
 }
 
+function parsePlannedTaskEntry(value: unknown): SessionPlannedTaskEntry | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const taskId = typeof record.taskId === "string" ? record.taskId : null;
+  const taskName = typeof record.taskName === "string" ? record.taskName : null;
+  const taskRoleCategory =
+    typeof record.taskRoleCategory === "string" ? record.taskRoleCategory : null;
+  const taskTier =
+    typeof record.taskTier === "number" && Number.isFinite(record.taskTier)
+      ? Math.trunc(record.taskTier)
+      : null;
+
+  if (
+    taskId === null ||
+    taskName === null ||
+    taskRoleCategory === null ||
+    taskTier === null
+  ) {
+    return null;
+  }
+
+  return {
+    taskId,
+    taskName,
+    taskRoleCategory,
+    taskTier,
+  };
+}
+
+function parseTaskHistoryEntry(value: unknown): SessionTaskHistoryEntry | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const taskId = typeof record.taskId === "string" ? record.taskId : null;
+  const outcome = typeof record.outcome === "string" ? record.outcome : null;
+
+  if (taskId === null || outcome === null) {
+    return null;
+  }
+
+  return {
+    at: typeof record.at === "string" ? record.at : null,
+    outcome,
+    protocolStep:
+      typeof record.protocolStep === "string" && record.protocolStep.trim().length > 0
+        ? record.protocolStep.trim()
+        : null,
+    reason:
+      typeof record.reason === "string" && record.reason.trim().length > 0
+        ? record.reason.trim()
+        : null,
+    taskId,
+    taskName:
+      typeof record.taskName === "string" && record.taskName.trim().length > 0
+        ? record.taskName.trim()
+        : null,
+  };
+}
+
 function shouldPreserveDisconnectedSnapshot(
   snapshot: SessionStateSnapshot,
 ): boolean {
@@ -223,6 +380,7 @@ function shouldPreserveDisconnectedSnapshot(
     snapshot.state === "ended"
   );
 }
+
 function parseCaseReport(value: unknown): CaseReportArtifact | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
@@ -345,6 +503,7 @@ export function useSessionState(
           : caseReport?.finalVerdict ?? null;
 
       setState({
+        activeTaskIndex: getInteger(payload, "activeTaskIndex"),
         allowedActions: parseAllowedActions(payload.allowedActions),
         blockReason: getString(payload, "blockReason"),
         caseReport,
@@ -352,17 +511,30 @@ export function useSessionState(
         currentPathMode: getString(payload, "currentPathMode"),
         currentStep: getString(payload, "currentStep"),
         currentTaskContext: parseTaskContext(payload.currentTaskContext),
+        demoModeEnabled: payload.demoModeEnabled === true,
+        demoBargeIn: parseDemoBargeInState(payload),
+        demoNearFailure: parseDemoNearFailureState(payload),
         endedReason: getString(payload, "endedReason"),
         finalVerdict,
         hasSnapshot: true,
         interruptionCount: getInteger(payload, "interruptionCount") ?? 0,
         lastVerifiedItem: getString(payload, "lastVerifiedItem"),
+        plannedTasks: Array.isArray(payload.plannedTasks)
+          ? payload.plannedTasks
+              .map((item) => parsePlannedTaskEntry(item))
+              .filter((item): item is SessionPlannedTaskEntry => item !== null)
+          : [],
         recoveryAttemptCount: getInteger(payload, "recoveryAttemptCount"),
         recoveryAttemptLimit: getInteger(payload, "recoveryAttemptLimit"),
         recoveryRerouteRequired: payload.recoveryRerouteRequired === true,
         recoveryStep: getString(payload, "recoveryStep"),
         state: getString(payload, "state"),
         swapCount: getInteger(payload, "swapCount") ?? 0,
+        taskHistory: Array.isArray(payload.taskHistory)
+          ? payload.taskHistory
+              .map((item) => parseTaskHistoryEntry(item))
+              .filter((item): item is SessionTaskHistoryEntry => item !== null)
+          : [],
         turnStatus: getString(payload, "turnStatus"),
         verificationStatus: getString(payload, "verificationStatus"),
       });
@@ -371,7 +543,3 @@ export function useSessionState(
 
   return state;
 }
-
-
-
-

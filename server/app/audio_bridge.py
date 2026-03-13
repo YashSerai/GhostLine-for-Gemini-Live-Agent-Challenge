@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
+from .demo_barge_in import DEMO_BARGE_IN_SCRIPT, matches_demo_barge_in_trigger
 from .gemini_live import GeminiLiveEvent, GeminiLiveSession, GeminiLiveSessionManager
 from .logging_utils import log_event
 from .verification_flow import VerificationFlowError
@@ -24,22 +25,27 @@ _AUDIO_MIME_PREFIX = "audio/pcm"
 _TEMPORARY_AUDIO_INPUT_SYSTEM_INSTRUCTION = (
     "TEMPORARY PROMPT 9 STUB: You are The Archivist, Containment Desk for "
     "Ghostline, a live paranormal containment hotline. Speak in short, calm, "
-    "procedural lines. Keep the interaction voice-first and camera-aware, one "
-    "step at a time. Be honest about uncertainty, never bluff visual claims, "
-    "and avoid campy horror, threats, profanity, gore, or identity-based "
-    "reasoning. When the backend sends realtime text beginning with "
-    "'OPERATOR_DIRECTIVE:', treat the remainder as an exact operator line: "
-    "speak it plainly, do not add extra wording, and stop after that line. "
-    "When calibration is referenced, explain it as one clean still frame of the "
-    "room used to place the first task. When assigning a task, state the task "
-    "name, the action, and how the caller should signal completion. This "
-    "temporary instruction exists only until the later deterministic planner "
-    "and authored dialogue prompts replace it."
+    "procedural lines with brisk pacing. Keep the interaction voice-first and "
+    "camera-aware, one step at a time. Be honest about uncertainty, never bluff "
+    "visual claims, and avoid campy horror, threats, profanity, gore, or "
+    "identity-based reasoning. Do not ask for the caller's name, location, or why "
+    "they are calling unless the backend explicitly directs it. The backend owns "
+    "the first minute of the call and the exact guidance beats. When the backend "
+    "sends realtime text beginning with 'OPERATOR_DIRECTIVE:', treat the "
+    "remainder as an exact operator line: speak it plainly, do not add extra "
+    "wording, and stop after that line. If the caller asks what to do, restate "
+    "the latest directive instead of inventing intake dialogue. When calibration "
+    "is referenced, explain it as one clean still frame of the room used to place "
+    "the first task. When assigning a task, state the task name, the action, and "
+    "how the caller should signal completion. This temporary instruction exists "
+    "only until the later deterministic planner and authored dialogue prompts "
+    "replace it."
 )
 ForwardEnvelope = Callable[[dict[str, Any]], Awaitable[None]]
 StartVerificationCallback = Callable[[dict[str, Any]], Awaitable[None]]
 HandleSwapRequestCallback = Callable[[dict[str, Any]], Awaitable[None]]
 RecordUserTranscriptCallback = Callable[[str, bool], None]
+UpdateDemoBargeInCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class AudioBridgePayloadError(ValueError):
@@ -66,6 +72,7 @@ class SessionAudioBridge:
         start_verification: StartVerificationCallback | None = None,
         handle_swap_request: HandleSwapRequestCallback | None = None,
         record_user_transcript: RecordUserTranscriptCallback | None = None,
+        update_demo_barge_in: UpdateDemoBargeInCallback | None = None,
     ) -> None:
         self.session_id = session_id
         self._gemini_session_manager = gemini_session_manager
@@ -73,6 +80,7 @@ class SessionAudioBridge:
         self._start_verification = start_verification
         self._handle_swap_request = handle_swap_request
         self._record_user_transcript = record_user_transcript
+        self._update_demo_barge_in = update_demo_barge_in
         self._gemini_session: GeminiLiveSession | None = None
         self._receive_task: asyncio.Task[None] | None = None
         self._mic_active = False
@@ -84,6 +92,12 @@ class SessionAudioBridge:
         self._operator_playback_epoch = 0
         self._discard_operator_audio = False
         self._pending_epoch_advance = False
+        self._demo_mode_enabled = False
+        self._demo_barge_in_armed = False
+        self._demo_barge_in_triggered = False
+        self._demo_barge_in_restatement_pending = False
+        self._demo_barge_in_completed = False
+        self._suppress_operator_output_transcripts = False
 
     async def start_stream(self, payload: dict[str, Any]) -> None:
         streaming = payload.get("streaming")
@@ -199,12 +213,21 @@ class SessionAudioBridge:
             await self._gemini_session_manager.close_session(self.session_id)
         self._gemini_session = None
 
+    async def configure_demo_mode(self, *, enabled: bool) -> None:
+        self._demo_mode_enabled = enabled
+        self._demo_barge_in_armed = False
+        self._demo_barge_in_triggered = False
+        self._demo_barge_in_restatement_pending = False
+        self._demo_barge_in_completed = False
+        self._suppress_operator_output_transcripts = False
+
     async def send_operator_guidance(self, text: str, *, source: str) -> None:
         normalized_text = text.strip()
         if not normalized_text:
             return
 
         session = await self._ensure_session()
+        self._suppress_operator_output_transcripts = True
         await session.send_text_input(f"OPERATOR_DIRECTIVE: {normalized_text}")
         log_event(
             LOGGER,
@@ -214,6 +237,7 @@ class SessionAudioBridge:
             source=source,
             text_preview=normalized_text[:120],
         )
+        await self._maybe_arm_demo_barge_in(normalized_text, source=source)
 
     async def _ensure_session(self) -> GeminiLiveSession:
         if self._gemini_session is None or self._gemini_session.is_closed:
@@ -348,18 +372,25 @@ class SessionAudioBridge:
                 event.payload.get("generationComplete", False)
                 or event.payload.get("turnComplete", False)
             )
-            if self._pending_epoch_advance and completed:
-                self._discard_operator_audio = False
-                self._pending_epoch_advance = False
-                self._operator_playback_epoch += 1
+            if (
+                completed
+                and self._demo_mode_enabled
+                and self._demo_barge_in_armed
+                and not self._demo_barge_in_triggered
+            ):
+                self._demo_barge_in_armed = False
+                await self._publish_demo_barge_in_status("idle")
                 log_event(
                     LOGGER,
                     logging.INFO,
-                    "operator_audio_flush_released",
+                    "demo_barge_in_disarmed",
                     session_id=self.session_id,
-                    released_by=event.event_type,
-                    playback_epoch=self._operator_playback_epoch,
+                    reason="target_line_completed_without_interrupt",
                 )
+            if completed:
+                self._suppress_operator_output_transcripts = False
+            if self._pending_epoch_advance and completed:
+                await self._release_operator_audio_flush(released_by=event.event_type)
             return
 
         if event.event_type in {"input_transcription", "output_transcription"}:
@@ -371,42 +402,45 @@ class SessionAudioBridge:
                     else "output"
                 )
                 is_final = bool(event.payload.get("finished", False))
-                await self._forward_envelope(
-                    {
-                        "type": "transcript",
-                        "sessionId": self.session_id,
-                        "payload": {
-                            "speaker": "user" if direction == "input" else "operator",
-                            "text": text.strip(),
-                            "isFinal": is_final,
-                            "source": "gemini_live",
-                        },
-                    }
-                )
-                log_event(
-                    LOGGER,
-                    logging.INFO,
-                    "gemini_live_transcript_received",
-                    session_id=self.session_id,
-                    direction=direction,
-                    finished=is_final,
-                    text_preview=text[:80],
-                )
+                if direction == "output" and self._suppress_operator_output_transcripts:
+                    log_event(
+                        LOGGER,
+                        logging.INFO,
+                        "gemini_live_output_transcript_suppressed",
+                        session_id=self.session_id,
+                        finished=is_final,
+                        text_preview=text[:80],
+                    )
+                    if is_final:
+                        self._suppress_operator_output_transcripts = False
+                else:
+                    await self._forward_envelope(
+                        {
+                            "type": "transcript",
+                            "sessionId": self.session_id,
+                            "payload": {
+                                "speaker": "user" if direction == "input" else "operator",
+                                "text": text.strip(),
+                                "isFinal": is_final,
+                                "source": "gemini_live",
+                            },
+                        }
+                    )
+                    log_event(
+                        LOGGER,
+                        logging.INFO,
+                        "gemini_live_transcript_received",
+                        session_id=self.session_id,
+                        direction=direction,
+                        finished=is_final,
+                        text_preview=text[:80],
+                    )
                 if direction == "input" and is_final:
                     if self._pending_epoch_advance:
-                        self._discard_operator_audio = False
-                        self._pending_epoch_advance = False
-                        self._operator_playback_epoch += 1
-                        log_event(
-                            LOGGER,
-                            logging.INFO,
-                            "operator_audio_flush_released",
-                            session_id=self.session_id,
-                            released_by="input_transcription",
-                            playback_epoch=self._operator_playback_epoch,
-                        )
+                        await self._release_operator_audio_flush(released_by="input_transcription")
                     if self._record_user_transcript is not None:
                         self._record_user_transcript(text.strip(), is_final)
+                    await self._maybe_trigger_demo_barge_in(text.strip())
                     ready_to_verify_intent = parse_ready_to_verify_voice_intent(text)
                     if (
                         ready_to_verify_intent is not None
@@ -476,6 +510,103 @@ class SessionAudioBridge:
                 event_type=event.event_type,
             )
 
+    async def _publish_demo_barge_in_status(
+        self,
+        status: str | None,
+        *,
+        matched_transcript_snippet: str | None = None,
+    ) -> None:
+        if self._update_demo_barge_in is None:
+            return
+
+        await self._update_demo_barge_in(
+            {
+                "status": status,
+                "targetLine": (
+                    DEMO_BARGE_IN_SCRIPT.target_line if self._demo_mode_enabled else None
+                ),
+                "triggerPhrase": (
+                    DEMO_BARGE_IN_SCRIPT.trigger_phrase if self._demo_mode_enabled else None
+                ),
+                "matchedTranscriptSnippet": matched_transcript_snippet,
+            }
+        )
+
+    async def _maybe_arm_demo_barge_in(self, text: str, *, source: str) -> None:
+        if not self._demo_mode_enabled or source != "demo_mode":
+            return
+        if self._demo_barge_in_completed or self._demo_barge_in_triggered:
+            return
+        if text != DEMO_BARGE_IN_SCRIPT.target_line:
+            return
+
+        self._demo_barge_in_armed = True
+        await self._publish_demo_barge_in_status("armed")
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "demo_barge_in_armed",
+            session_id=self.session_id,
+            target_line=DEMO_BARGE_IN_SCRIPT.target_line,
+            trigger_phrase=DEMO_BARGE_IN_SCRIPT.trigger_phrase,
+        )
+
+    async def _maybe_trigger_demo_barge_in(self, transcript_text: str) -> None:
+        if not self._demo_mode_enabled or not self._demo_barge_in_armed:
+            return
+        if self._demo_barge_in_triggered or self._demo_barge_in_completed:
+            return
+        if not matches_demo_barge_in_trigger(transcript_text):
+            return
+
+        self._demo_barge_in_armed = False
+        self._demo_barge_in_triggered = True
+        self._demo_barge_in_restatement_pending = True
+        await self._publish_demo_barge_in_status(
+            "triggered",
+            matched_transcript_snippet=transcript_text,
+        )
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "demo_barge_in_triggered",
+            session_id=self.session_id,
+            trigger_phrase=DEMO_BARGE_IN_SCRIPT.trigger_phrase,
+            matched_transcript_snippet=transcript_text[:120],
+        )
+
+    async def _release_operator_audio_flush(self, *, released_by: str) -> None:
+        self._discard_operator_audio = False
+        self._pending_epoch_advance = False
+        self._operator_playback_epoch += 1
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "operator_audio_flush_released",
+            session_id=self.session_id,
+            released_by=released_by,
+            playback_epoch=self._operator_playback_epoch,
+        )
+
+        if not self._demo_barge_in_restatement_pending or self._demo_barge_in_completed:
+            return
+
+        self._demo_barge_in_restatement_pending = False
+        self._demo_barge_in_completed = True
+        await self.send_operator_guidance(
+            DEMO_BARGE_IN_SCRIPT.restatement_line,
+            source="demo_mode",
+        )
+        await self._publish_demo_barge_in_status("restated")
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "demo_barge_in_restated",
+            session_id=self.session_id,
+            released_by=released_by,
+            restatement_line=DEMO_BARGE_IN_SCRIPT.restatement_line,
+        )
+
 
 def _parse_audio_mime_type(value: Any) -> str:
     if value is None:
@@ -521,6 +652,7 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
+
 
 
 

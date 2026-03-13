@@ -15,6 +15,7 @@ type SnapshotListener = (snapshot: SessionManagerSnapshot) => void;
 
 export interface WebSocketSessionManagerOptions {
   url: string;
+  clientConnectPayload?: Record<string, unknown>;
   reconnectDelaysMs?: readonly number[];
   maxReconnectAttempts?: number;
 }
@@ -73,6 +74,7 @@ function createClientEnvelope<T extends ClientSessionMessageType>(
 
 export class WebSocketSessionManager {
   private readonly url: string;
+  private readonly clientConnectPayload: Record<string, unknown>;
   private readonly reconnectDelaysMs: readonly number[];
   private readonly maxReconnectAttempts: number;
   private readonly listeners = new Set<SnapshotListener>();
@@ -93,6 +95,7 @@ export class WebSocketSessionManager {
 
   constructor(options: WebSocketSessionManagerOptions) {
     this.url = options.url;
+    this.clientConnectPayload = options.clientConnectPayload ?? {};
     this.reconnectDelaysMs =
       options.reconnectDelaysMs ?? DEFAULT_RECONNECT_DELAYS_MS;
     this.maxReconnectAttempts =
@@ -245,6 +248,7 @@ export class WebSocketSessionManager {
       this.sendMessage("client_connect", {
         client: "ghostline-web",
         transport: "websocket",
+        ...this.clientConnectPayload,
       });
     };
 

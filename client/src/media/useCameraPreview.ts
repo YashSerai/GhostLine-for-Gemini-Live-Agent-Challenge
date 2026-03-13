@@ -181,6 +181,17 @@ export function useCameraPreview(
       setCaptureFrameCount((count) => count + 1);
       setLastCapturedFrame(frame);
       setError(null);
+      if (
+        captureType === "calibration" &&
+        connectionStatusRef.current === "connected"
+      ) {
+        sendMessageRef.current("calibration_status", {
+          status: "captured",
+          capturedAt: frame.capturedAt,
+          width: frame.width,
+          height: frame.height,
+        });
+      }
       return frame;
     } catch (captureError) {
       const detail =
@@ -248,3 +259,4 @@ export function useCameraPreview(
     videoRef,
   };
 }
+

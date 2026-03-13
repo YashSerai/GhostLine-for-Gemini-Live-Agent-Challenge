@@ -10,6 +10,7 @@ SESSION_MESSAGE_TYPES: Final[tuple[str, ...]] = (
     "mic_status",
     "audio_chunk",
     "camera_status",
+    "calibration_status",
     "transcript",
     "frame",
     "verify_request",
@@ -108,3 +109,4 @@ def build_error_envelope(
         envelope["sessionId"] = session_id
 
     return envelope
+

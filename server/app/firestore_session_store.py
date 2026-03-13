@@ -35,6 +35,17 @@ class FirestoreSessionStore:
     def is_configured(self) -> bool:
         return self._settings.is_configured
 
+    @property
+    def collection(self) -> str:
+        return self._settings.collection
+
+    @property
+    def project(self) -> str:
+        return self._settings.project
+
+    def document_path(self, session_id: str) -> str:
+        return f"{self._settings.collection}/{session_id}"
+
     async def create_session_document(
         self,
         session_id: str,
@@ -209,6 +220,10 @@ class FirestoreSessionStore:
             "caseReport": snapshot.get("caseReport"),
             "endedReason": snapshot.get("endedReason"),
             "proof": {
+                "sessionLocator": session_id,
+                "firestoreDocumentPath": self.document_path(session_id),
+                "firestoreCollection": self._settings.collection,
+                "logQueryHint": f'jsonPayload.session_id="{session_id}"',
                 "activeTaskId": _task_context_value(
                     snapshot.get("currentTaskContext"),
                     "taskId",
@@ -243,5 +258,6 @@ def _utc_now_iso() -> str:
 
 
 __all__ = ["FirestoreSessionStore"]
+
 
 

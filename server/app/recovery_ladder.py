@@ -223,10 +223,16 @@ def _resolve_recovery_occasion(
 
 def _build_adjust_instruction(occasion: str) -> str:
     if occasion == "lighting":
-        return "Adjust the angle or increase illumination before retrying the same verification step."
+        return (
+            "Increase the light or move toward the brightest area, keep the doorway or active item centered, "
+            "then retry the same verification step."
+        )
     if occasion == "stability":
-        return "Adjust the angle and brace the phone so the frame stops drifting before the next hold."
-    return "Adjust the angle so the active area is fully visible before retrying the same step."
+        return (
+            "Brace the phone against a solid surface or use both hands, keep the active item centered, "
+            "and stop moving before the next hold."
+        )
+    return "Adjust the angle so the doorway or active item is centered cleanly before retrying the same step."
 
 
 def _build_adjust_operator_line(occasion: str) -> str:
@@ -238,20 +244,29 @@ def _build_adjust_operator_line(occasion: str) -> str:
         lines = get_flavor_lines("recovery_response", occasion="framing")
 
     if lines:
-        return lines[0].text
+        authored_line = lines[0].text
+        if occasion == "lighting":
+            return (
+                f"{authored_line} Move toward the brightest area and keep the doorway or active item centered."
+            )
+        if occasion == "stability":
+            return (
+                f"{authored_line} Brace the phone against something solid or use both hands before the next hold."
+            )
+        return f"{authored_line} Keep only the doorway or active item centered before the next hold."
 
     if occasion == "lighting":
-        return "Increase the light, then give me the same step again without extra motion."
+        return "Increase the light or move toward the brightest area. Keep the doorway or active item centered, then give me the same step again without extra motion."
     if occasion == "stability":
-        return "Steady the phone first. We retry only when the room stops drifting."
-    return "Adjust the frame and hold the boundary cleanly this time."
+        return "Brace the phone against something solid or use both hands. Keep the active item centered and wait until the room stops drifting."
+    return "Adjust the frame so only the doorway or active item sits in the center, then hold it there cleanly."
 
 
 def _build_stability_operator_line() -> str:
     lines = get_flavor_lines("recovery_response", occasion="stability")
     if lines:
-        return lines[0].text
-    return "Steady the phone first. We retry only when the room stops drifting."
+        return f"{lines[0].text} Brace the phone against something solid or use both hands before the next hold."
+    return "Brace the phone against something solid or use both hands. We retry only when the room stops drifting."
 
 
 def _suggest_path_mode(
@@ -360,4 +375,3 @@ __all__ = [
     "SubstituteTaskSuggestion",
     "VerificationRecoveryLadder",
 ]
-

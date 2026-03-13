@@ -3036,6 +3036,9 @@ It does not oversell or invent missing features
 
 NOTES / PITFALLS
 Do not write hype disconnected from what was truly built.
+
+These next prompts are core product behavior refinements for normal mode dialogue and operator guidance. They are not optional polish. If any of this behavior is only partially covered already, implement these prompts before treating the hotline experience as demo-ready.
+
 Prompt 57: Live Operator Guidance Orchestrator for Normal Mode
 
 PHASE
@@ -3088,6 +3091,8 @@ operator text and operator voice stay aligned
 
 state-driven guidance is inspectable and deterministic
 
+require the orchestrator to define which spoken lines are backend-authored vs which can be Gemini-reactive filler
+
 NOTES / PITFALLS
 Do not let the user hear a vague live voice while the real instructions only exist in side-panel text.
 
@@ -3116,6 +3121,8 @@ state what should be centered in frame during calibration
 
 explain what happens after calibration
 
+the first task instruction must include the exact phrase or button the user should use to indicate readiness
+
 when the first task is assigned, speak:
 
 the task name
@@ -3138,7 +3145,7 @@ the first task is spoken clearly and concretely
 visible operator text and spoken instruction match
 
 NOTES / PITFALLS
-Do not use product-internal wording without explanation. “Capture calibration” alone is not enough.
+Do not use product-internal wording without explanation. ï¿½Capture calibrationï¿½ alone is not enough.
 
 Prompt 59: Low-Visibility / Low-Context Guidance Compensation
 
@@ -3183,6 +3190,8 @@ A state-aware guidance layer that makes the operator more helpful when visual ce
 ACCEPTANCE CRITERIA
 
 low-visibility sessions feel guided rather than vague
+
+when confidence is weak, the operator should prefer clarification and substitution over repeated vague retries
 
 diagnostic questions improve task routing clarity
 

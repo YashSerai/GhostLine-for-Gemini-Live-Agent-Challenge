@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
+import os
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .cloud_proof import CloudProofSessionRegistry
 from .config import Settings, get_settings
 from .firestore_session_store import FirestoreSessionStore
 from .flavor_text_state_model import FlavorTextStateModel
@@ -27,6 +30,11 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.gemini_live_session_manager = GeminiLiveSessionManager(
         settings.gemini_live
+    )
+    app.state.cloud_proof_registry = CloudProofSessionRegistry(
+        service_name=os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_SERVICE") or None,
+        project=settings.gemini_live.project or settings.firestore.project or None,
+        firestore_collection=settings.firestore.collection,
     )
     app.state.incident_classification_store = IncidentClassificationStore()
     app.state.flavor_text_state_model = FlavorTextStateModel()
@@ -75,6 +83,15 @@ async def lifespan(app: FastAPI):
     )
     log_event(
         LOGGER,
+        logging.INFO,
+        "cloud_proof_registry_ready",
+        service_name=os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_SERVICE") or None,
+        project=settings.gemini_live.project or settings.firestore.project or None,
+        firestore_collection=settings.firestore.collection,
+        proof_endpoint="/ops/proof/active-session",
+    )
+    log_event(
+        LOGGER,
         logging.WARNING if settings.mock_verification.enabled else logging.INFO,
         "verification_engine_ready",
         verification_engine_kind=("mock" if settings.mock_verification.enabled else "real"),
@@ -84,6 +101,12 @@ async def lifespan(app: FastAPI):
         mock_tier2_result=settings.mock_verification.tier2_result,
         mock_tier3_result=settings.mock_verification.tier3_result,
         mock_unknown_tier_result=settings.mock_verification.unknown_tier_result,
+    )
+    log_event(
+        LOGGER,
+        logging.INFO,
+        "demo_mode_ready",
+        enabled_by_default=settings.demo_mode.enabled_by_default,
     )
     log_event(
         LOGGER,
@@ -152,8 +175,8 @@ def create_app() -> FastAPI:
             "Ghostline backend with health endpoints, local CORS, a session "
             "WebSocket gateway, environment-loaded Gemini Live integration, a "
             "bounded Ready-to-Verify flow, an isolated mock verifier, a "
-            "real task-aware verification engine, and Firestore-backed "
-            "session persistence."
+            "real task-aware verification engine, Firestore-backed "
+            "session persistence, and cloud-proof operational support."
         ),
         version="0.1.0",
         lifespan=lifespan,
@@ -214,7 +237,27 @@ def create_app() -> FastAPI:
             "mockVerificationEnabled": str(ready_settings.mock_verification.enabled).lower(),
             "verificationEngine": verification_engine_kind,
             "firestorePersistence": firestore_status,
+            "demoModeDefault": str(ready_settings.demo_mode.enabled_by_default).lower(),
+            "cloudProofEndpoint": "/ops/proof/active-session",
         }
+
+    @app.get("/ops/proof/active-session")
+    async def active_cloud_proof_session() -> dict[str, Any]:
+        cloud_proof_registry: CloudProofSessionRegistry | None = getattr(
+            app.state,
+            "cloud_proof_registry",
+            None,
+        )
+        if cloud_proof_registry is None:
+            return {
+                "serviceName": os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_SERVICE"),
+                "project": settings.gemini_live.project or settings.firestore.project or None,
+                "firestoreCollection": settings.firestore.collection,
+                "activeSession": None,
+                "lastSession": None,
+                "expectedLogEvents": [],
+            }
+        return cloud_proof_registry.build_active_session_payload()
 
     register_websocket_gateway(app)
     return app

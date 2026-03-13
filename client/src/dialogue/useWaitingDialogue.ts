@@ -21,13 +21,14 @@ interface UseWaitingDialogueOptions {
   active: boolean;
   allowDiagnosticPrompt: boolean;
   context: WaitingDialogueContext;
+  demoModeEnabled?: boolean;
   isOperatorSpeaking: boolean;
 }
 
 export function useWaitingDialogue(
   options: UseWaitingDialogueOptions,
 ): WaitingDialogueState {
-  const { active, allowDiagnosticPrompt, context, isOperatorSpeaking } = options;
+  const { active, allowDiagnosticPrompt, context, demoModeEnabled = false, isOperatorSpeaking } = options;
   const [currentLine, setCurrentLine] = useState<WaitingDialogueLine | null>(null);
   const lineIndexRef = useRef(0);
   const timerRef = useRef<number | null>(null);
@@ -36,11 +37,12 @@ export function useWaitingDialogue(
   const sequence = useMemo(
     () =>
       getWaitingDialogueSequence(context, {
+        demoModeEnabled,
         includeDiagnosticPrompt: allowDiagnosticPrompt,
       }),
-    [allowDiagnosticPrompt, context],
+    [allowDiagnosticPrompt, context, demoModeEnabled],
   );
-  const windowKey = `${context}:${allowDiagnosticPrompt ? "diagnostic" : "paced"}`;
+  const windowKey = `${demoModeEnabled ? "demo" : "normal"}:${context}:${allowDiagnosticPrompt ? "diagnostic" : "paced"}`;
 
   function clearScheduledLine(): void {
     if (timerRef.current !== null) {
