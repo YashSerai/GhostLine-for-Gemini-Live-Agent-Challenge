@@ -134,6 +134,19 @@ class SessionCapabilityRecoveryManager:
             payload.get("rawTranscriptSnippet")
         )
         task_context = _build_task_context(payload.get("taskContext"), self._active_task_context)
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "swap_requested",
+            session_id=self.session_id,
+            source=source,
+            inferred_reason=inferred_reason,
+            current_step=task_context.get("protocolStep"),
+            task_id=task_context.get("taskId"),
+            task_name=task_context.get("taskName"),
+            path_mode=task_context.get("pathMode"),
+            raw_transcript_snippet=raw_transcript_snippet,
+        )
         swap_key = _build_swap_key(task_context, inferred_reason)
         current_task = _resolve_current_task(task_context, inferred_reason)
         current_swap_count = self._swap_counts.get(swap_key, 0)
@@ -535,5 +548,6 @@ __all__ = [
     "SessionCapabilityRecoveryManager",
     "SubstituteTaskPayload",
 ]
+
 
 

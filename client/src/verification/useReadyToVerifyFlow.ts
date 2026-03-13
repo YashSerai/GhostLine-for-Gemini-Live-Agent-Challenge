@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { CapturedFrame } from "../media/frameCapture";
 import type { CameraCaptureType } from "../media/useCameraPreview";
@@ -62,7 +62,7 @@ interface VerificationStateEnvelopePayload {
   receivedFrames: number;
   source: string | null;
   startedAt: string | null;
-  status: "pending" | "captured";
+  status: "pending" | "captured" | "cancelled";
   taskContext: VerificationTaskContext | null;
 }
 
@@ -96,7 +96,7 @@ function parseVerificationStatePayload(
     typeof expectedFrames !== "number" ||
     typeof holdStillSeconds !== "number" ||
     typeof receivedFrames !== "number" ||
-    (status !== "pending" && status !== "captured")
+    (status !== "pending" && status !== "captured" && status !== "cancelled")
   ) {
     return null;
   }
@@ -190,6 +190,13 @@ export function useReadyToVerifyFlow(
         return;
       }
 
+      if (payload.status === "cancelled") {
+        activeAttemptRef.current = null;
+        captureInFlightRef.current = false;
+        setState(IDLE_STATE);
+        return;
+      }
+
       if (payload.status === "pending") {
         setState({
           attemptId: payload.attemptId,
@@ -259,6 +266,10 @@ export function useReadyToVerifyFlow(
         captureFrame: captureFrameRef.current,
         frameCount: payload.expectedFrames,
         onFrameCaptured: (_frame, frameIndex) => {
+          if (activeAttemptRef.current !== payload.attemptId) {
+            return;
+          }
+
           setState((current) => ({
             ...current,
             localCapturedFrames: frameIndex,
@@ -267,6 +278,12 @@ export function useReadyToVerifyFlow(
         windowDurationMs: payload.captureWindowMs,
       });
 
+      if (activeAttemptRef.current !== payload.attemptId) {
+        captureInFlightRef.current = false;
+        setState(IDLE_STATE);
+        return;
+      }
+
       setState((current) => ({
         ...current,
         operatorLine: buildOperatorLine("uploading_frames", payload.holdStillSeconds),
@@ -274,6 +291,9 @@ export function useReadyToVerifyFlow(
       }));
 
       captureWindow.frames.forEach((frame, index) => {
+        if (activeAttemptRef.current !== payload.attemptId) {
+          return;
+        }
         const didSend = sendMessageRef.current("frame", {
           verificationAttemptId: payload.attemptId,
           captureType: "ready_to_verify",
@@ -314,3 +334,4 @@ export function useReadyToVerifyFlow(
 
   return state;
 }
+

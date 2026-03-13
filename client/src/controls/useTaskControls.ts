@@ -9,6 +9,7 @@ import type { VerificationTaskContext } from "../verification/useReadyToVerifyFl
 
 type TaskControlMessageType = "verify_request" | "swap_request" | "pause" | "stop";
 type TaskControlNoticeTone = "pending" | "ready" | "warning";
+type PauseActionMode = "pause" | "resume";
 type SwapOutcomeStatus = "clarifying_question" | "substituted" | "partial_handling";
 
 export interface TaskControlNotice {
@@ -24,7 +25,7 @@ export interface TaskControlState {
   pausePending: boolean;
   readyToVerifyPending: boolean;
   requestEndSession: () => boolean;
-  requestPauseSession: () => boolean;
+  requestPauseSession: (paused?: boolean) => boolean;
   requestReadyToVerify: (options?: {
     taskContext?: VerificationTaskContext | null;
   }) => boolean;
@@ -77,7 +78,10 @@ function createRequestId(): string {
   return `control-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
-function createAcceptedNotice(messageType: TaskControlMessageType): TaskControlNotice {
+function createAcceptedNotice(
+  messageType: TaskControlMessageType,
+  pauseAction: PauseActionMode = "pause",
+): TaskControlNotice {
   switch (messageType) {
     case "verify_request":
       return {
@@ -92,11 +96,17 @@ function createAcceptedNotice(messageType: TaskControlMessageType): TaskControlN
         tone: "ready",
       };
     case "pause":
-      return {
-        title: "Pause Request Sent",
-        body: "The backend accepted the pause envelope.",
-        tone: "ready",
-      };
+      return pauseAction === "resume"
+        ? {
+            title: "Resume Request Sent",
+            body: "The backend accepted the resume envelope.",
+            tone: "ready",
+          }
+        : {
+            title: "Pause Request Sent",
+            body: "The backend accepted the pause envelope.",
+            tone: "ready",
+          };
     case "stop":
       return {
         title: "End Session Sent",
@@ -112,7 +122,10 @@ function createAcceptedNotice(messageType: TaskControlMessageType): TaskControlN
   }
 }
 
-function createQueuedNotice(messageType: TaskControlMessageType): TaskControlNotice {
+function createQueuedNotice(
+  messageType: TaskControlMessageType,
+  pauseAction: PauseActionMode = "pause",
+): TaskControlNotice {
   switch (messageType) {
     case "verify_request":
       return {
@@ -127,11 +140,17 @@ function createQueuedNotice(messageType: TaskControlMessageType): TaskControlNot
         tone: "pending",
       };
     case "pause":
-      return {
-        title: "Sending Pause Request",
-        body: "The pause request is being sent to the backend now.",
-        tone: "pending",
-      };
+      return pauseAction === "resume"
+        ? {
+            title: "Sending Resume Request",
+            body: "The resume request is being sent to the backend now.",
+            tone: "pending",
+          }
+        : {
+            title: "Sending Pause Request",
+            body: "The pause request is being sent to the backend now.",
+            tone: "pending",
+          };
     case "stop":
       return {
         title: "Ending Session",
@@ -155,7 +174,18 @@ function createBlockedNotice(): TaskControlNotice {
   };
 }
 
-function createSendFailureNotice(messageType: TaskControlMessageType): TaskControlNotice {
+function createSendFailureNotice(
+  messageType: TaskControlMessageType,
+  pauseAction: PauseActionMode = "pause",
+): TaskControlNotice {
+  if (messageType === "pause" && pauseAction === "resume") {
+    return {
+      title: "Resume Not Sent",
+      body: "The session could not be resumed because the transport was not ready.",
+      tone: "warning",
+    };
+  }
+
   return {
     title: "Control Not Sent",
     body:
@@ -311,6 +341,7 @@ export function useTaskControls(
 ): TaskControlState {
   const { connectionStatus, sendEnvelope, subscribeToEnvelopes } = options;
   const pendingRequestsRef = useRef(new Map<string, TaskControlMessageType>());
+  const pauseActionRef = useRef<PauseActionMode>("pause");
   const [pending, setPending] = useState<PendingTaskControlState>(
     IDLE_PENDING_STATE,
   );
@@ -328,6 +359,7 @@ export function useTaskControls(
 
     if (connectionStatus === "disconnected" || connectionStatus === "error") {
       pendingRequestsRef.current.clear();
+      pauseActionRef.current = "pause";
       setPending(IDLE_PENDING_STATE);
       setActiveTaskContext(null);
       setSwapCount(0);
@@ -397,7 +429,12 @@ export function useTaskControls(
         if (messageType === "swap_request") {
           return;
         }
-        setLastNotice(createAcceptedNotice(messageType));
+        setLastNotice(
+          createAcceptedNotice(
+            messageType,
+            messageType === "pause" ? pauseActionRef.current : "pause",
+          ),
+        );
       }
     });
   }, [subscribeToEnvelopes]);
@@ -424,13 +461,23 @@ export function useTaskControls(
 
     const didSend = sendEnvelope(envelope);
     if (!didSend) {
-      setLastNotice(createSendFailureNotice(messageType));
+      setLastNotice(
+        createSendFailureNotice(
+          messageType,
+          messageType === "pause" ? pauseActionRef.current : "pause",
+        ),
+      );
       return false;
     }
 
     pendingRequestsRef.current.set(envelope.requestId as string, messageType);
     setPending((current) => setPendingFlag(current, messageType, true));
-    setLastNotice(createQueuedNotice(messageType));
+    setLastNotice(
+      createQueuedNotice(
+        messageType,
+        messageType === "pause" ? pauseActionRef.current : "pause",
+      ),
+    );
     return true;
   }
 
@@ -457,10 +504,11 @@ export function useTaskControls(
     });
   }
 
-  function requestPauseSession(): boolean {
+  function requestPauseSession(paused = true): boolean {
+    pauseActionRef.current = paused ? "pause" : "resume";
     return sendTaskControl("pause", {
-      action: "pause_session",
-      paused: true,
+      action: paused ? "pause_session" : "resume_session",
+      paused,
       source: "control_bar",
       trigger: "button",
     });
@@ -491,4 +539,3 @@ export function useTaskControls(
     swapPending: pending.swap_request,
   };
 }
-

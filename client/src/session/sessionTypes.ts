@@ -1,4 +1,4 @@
-﻿export const CLIENT_SESSION_MESSAGE_TYPES = [
+export const CLIENT_SESSION_MESSAGE_TYPES = [
   "client_connect",
   "mic_status",
   "audio_chunk",
@@ -12,6 +12,7 @@
 ] as const;
 
 export const SERVER_SESSION_MESSAGE_TYPES = [
+  "case_report",
   "error",
   "operator_audio_chunk",
   "operator_interruption",
@@ -19,6 +20,7 @@ export const SERVER_SESSION_MESSAGE_TYPES = [
   "transcript",
   "verification_state",
   "verification_result",
+  "session_state",
 ] as const;
 
 export type ClientSessionMessageType =

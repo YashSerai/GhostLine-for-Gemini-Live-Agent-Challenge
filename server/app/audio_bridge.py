@@ -309,6 +309,16 @@ class SessionAudioBridge:
                 interrupted=interrupted,
                 playback_epoch=self._operator_playback_epoch,
             )
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "interruption_handled",
+                session_id=self.session_id,
+                interrupted=interrupted,
+                playback_epoch=self._operator_playback_epoch,
+                operator_audio_sequence=self._operator_audio_sequence,
+                flush_active=self._discard_operator_audio,
+            )
             return
 
         if event.event_type in {"generation_complete", "turn_complete"}:
@@ -489,6 +499,7 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
+
 
 
 

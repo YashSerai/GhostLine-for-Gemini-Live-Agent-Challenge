@@ -938,3 +938,197 @@ h2 {
 }
 
 
+.case-report-panel {
+  padding: 22px;
+  display: grid;
+  gap: 18px;
+}
+
+.case-report-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.case-report-meta article,
+.case-report-summary,
+.case-report-closing,
+.case-report-task-row {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(9, 14, 19, 0.78);
+}
+
+.case-report-meta article,
+.case-report-summary,
+.case-report-closing,
+.case-report-task-row {
+  padding: 16px;
+}
+
+.case-report-summary,
+.case-report-closing {
+  display: grid;
+  gap: 12px;
+}
+
+.case-report-closing-secured {
+  background: rgba(22, 45, 34, 0.22);
+}
+
+.case-report-closing-partial {
+  background: rgba(43, 35, 17, 0.22);
+}
+
+.case-report-closing-inconclusive {
+  background: rgba(56, 22, 18, 0.24);
+}
+
+.case-report-summary-label,
+.case-report-task-step {
+  margin: 0;
+  color: var(--cool);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.case-report-summary-copy {
+  margin: 0;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.case-report-counts,
+.case-report-task-meta,
+.case-report-task-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.case-report-task-list {
+  display: grid;
+}
+
+.case-report-task-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.case-report-task-header h3 {
+  margin: 6px 0 0;
+  font-size: 1.05rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 600;
+}
+
+.case-report-task-header h3 span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.case-report-outcome {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.case-report-outcome-confirmed,
+.case-report-chip-confirmed,
+.panel-tag-secured {
+  border-color: rgba(133, 194, 156, 0.34);
+  background: rgba(22, 45, 34, 0.3);
+}
+
+.case-report-outcome-user-confirmed-only,
+.case-report-chip-user-confirmed,
+.panel-tag-partial {
+  border-color: rgba(216, 180, 109, 0.34);
+  background: rgba(43, 35, 17, 0.28);
+}
+
+.case-report-outcome-unverified,
+.case-report-outcome-skipped,
+.case-report-chip-unverified,
+.case-report-chip-skipped,
+.panel-tag-inconclusive {
+  border-color: rgba(218, 130, 115, 0.34);
+  background: rgba(56, 22, 18, 0.34);
+}
+
+@media (max-width: 860px) {
+  .case-report-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .case-report-task-header {
+    flex-direction: column;
+  }
+}
+
+
+
+.case-report-panel-secured {
+  border-color: rgba(133, 194, 156, 0.34);
+}
+
+.case-report-panel-partial {
+  border-color: rgba(216, 180, 109, 0.34);
+}
+
+.case-report-panel-inconclusive {
+  border-color: rgba(218, 130, 115, 0.34);
+}
+.case-report-archive {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed rgba(127, 169, 202, 0.28);
+  border-radius: 18px;
+  background: rgba(8, 13, 19, 0.72);
+}
+
+.case-report-archive-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.case-report-archive-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.case-report-archive-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(127, 169, 202, 0.22);
+  background: rgba(12, 22, 31, 0.68);
+  color: var(--text);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 860px) {
+  .case-report-archive-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

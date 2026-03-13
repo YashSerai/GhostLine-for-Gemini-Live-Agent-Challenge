@@ -1,4 +1,4 @@
-﻿"""Environment-backed application settings for the Ghostline backend."""
+"""Environment-backed application settings for the Ghostline backend."""
 
 from __future__ import annotations
 
@@ -79,6 +79,18 @@ class MockVerificationSettings:
 
 
 @dataclass(frozen=True)
+class FirestoreSettings:
+    project: str
+    database: str
+    collection: str
+    credentials_path: str | None
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.project and self.collection)
+
+
+@dataclass(frozen=True)
 class Settings:
     app_name: str
     app_env: str
@@ -90,6 +102,7 @@ class Settings:
     cors_origins: tuple[str, ...]
     gemini_live: GeminiLiveSettings
     mock_verification: MockVerificationSettings
+    firestore: FirestoreSettings
 
 
 @lru_cache(maxsize=1)
@@ -159,6 +172,16 @@ def get_settings() -> Settings:
             default="user_confirmed_only",
         ),
     )
+    firestore = FirestoreSettings(
+        project=os.getenv("GOOGLE_CLOUD_PROJECT", "").strip(),
+        database=os.getenv("FIRESTORE_DATABASE", "(default)").strip() or "(default)",
+        collection=(
+            os.getenv("FIRESTORE_SESSIONS_COLLECTION", "ghostline_sessions").strip()
+            or "ghostline_sessions"
+        ),
+        credentials_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        or None,
+    )
 
     return Settings(
         app_name=app_name,
@@ -171,4 +194,5 @@ def get_settings() -> Settings:
         cors_origins=cors_origins,
         gemini_live=gemini_live,
         mock_verification=mock_verification,
+        firestore=firestore,
     )

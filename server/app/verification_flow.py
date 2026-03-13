@@ -178,6 +178,19 @@ class SessionVerificationFlow:
         log_event(
             LOGGER,
             logging.INFO,
+            "verification_requested",
+            session_id=self.session_id,
+            verification_attempt_id=attempt.attempt_id,
+            source=attempt.source,
+            current_step=attempt.task_context.get("protocolStep"),
+            task_id=attempt.task_context.get("taskId"),
+            task_name=attempt.task_context.get("taskName"),
+            path_mode=attempt.task_context.get("pathMode"),
+            raw_transcript_snippet=attempt.raw_transcript_snippet,
+        )
+        log_event(
+            LOGGER,
+            logging.INFO,
             "verification_window_started",
             session_id=self.session_id,
             verification_attempt_id=attempt.attempt_id,
@@ -264,6 +277,31 @@ class SessionVerificationFlow:
         if self._verification_engine is not None:
             await self._run_verification_engine(completed_attempt)
 
+    async def cancel_active_attempt(self, reason: str) -> bool:
+        if self._active_attempt is None:
+            return False
+
+        cancelled_attempt = self._active_attempt
+        self._active_attempt = None
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "verification_window_cancelled",
+            session_id=self.session_id,
+            verification_attempt_id=cancelled_attempt.attempt_id,
+            reason=reason,
+            current_step=cancelled_attempt.task_context.get("protocolStep"),
+            task_id=cancelled_attempt.task_context.get("taskId"),
+            task_name=cancelled_attempt.task_context.get("taskName"),
+        )
+        await self._forward_state(
+            status="cancelled",
+            attempt=cancelled_attempt,
+            received_frames=len(cancelled_attempt.frames),
+            reason=reason,
+        )
+        return True
+
     async def close(self) -> None:
         self._active_attempt = None
 
@@ -273,6 +311,7 @@ class SessionVerificationFlow:
         status: str,
         attempt: VerificationAttempt,
         received_frames: int,
+        reason: str | None = None,
     ) -> None:
         await self._forward_envelope(
             {
@@ -289,6 +328,7 @@ class SessionVerificationFlow:
                     "rawTranscriptSnippet": attempt.raw_transcript_snippet,
                     "startedAt": attempt.started_at,
                     "taskContext": attempt.task_context,
+                    "reason": reason,
                 },
             }
         )
@@ -397,6 +437,21 @@ class SessionVerificationFlow:
                 current_path_mode=current_path_mode,
             )
 
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "verification_result_emitted",
+            session_id=self.session_id,
+            verification_attempt_id=attempt.attempt_id,
+            current_step=attempt.task_context.get("protocolStep"),
+            task_id=attempt.task_context.get("taskId"),
+            task_name=attempt.task_context.get("taskName"),
+            current_path_mode=current_path_mode,
+            status=decision.status,
+            confidence_band=decision.confidence_band,
+            block_reason=decision.block_reason,
+            is_mock=decision.is_mock,
+        )
         await self._forward_envelope(
             {
                 "type": "verification_result",
@@ -656,6 +711,9 @@ __all__ = [
     "SessionVerificationFlow",
     "VerificationFlowError",
 ]
+
+
+
 
 
 

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useMicrophoneBridge } from "./audio/useMicrophoneBridge";
 import { useOperatorAudioPlayback } from "./audio/useOperatorAudioPlayback";
 import { useCameraPreview } from "./media/useCameraPreview";
@@ -11,6 +12,7 @@ import {
   buildVerificationHudOverrides,
 } from "./verification/verificationPresentation";
 import { useTaskControls } from "./controls/useTaskControls";
+import { useSessionState } from "./session/useSessionState";
 import { useSessionWebSocket } from "./session/useSessionWebSocket";
 import {
   useReadyToVerifyFlow,
@@ -444,8 +446,69 @@ function getVerificationHudOverrides(verificationPhase: ReadyToVerifyPhase): {
   }
 }
 
+function formatCaseReportTimestamp(timestamp: string): string {
+  const parsedDate = new Date(timestamp);
+  if (Number.isNaN(parsedDate.valueOf())) {
+    return timestamp;
+  }
+
+  return parsedDate.toLocaleString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatCaseReportOutcome(outcome: string): string {
+  switch (outcome) {
+    case "user_confirmed_only":
+      return "User Confirmed Only";
+    case "unverified":
+      return "Unverified";
+    case "skipped":
+      return "Skipped";
+    default:
+      return "Confirmed";
+  }
+}
+
+function formatVerdictLabel(verdict: string | null): string {
+  if (verdict === "inconclusive") {
+    return "Inconclusive / Contained For Now";
+  }
+  if (verdict === "partial") {
+    return "Partial Containment";
+  }
+  if (verdict === "secured") {
+    return "Secured";
+  }
+  return "Pending";
+}
+
+function buildArchiveReferences(caseId: string): string[] {
+  const normalized = caseId.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const seed = normalized.length > 0 ? normalized : "CASE0000";
+  const prefix = seed.slice(0, 4).padEnd(4, "X");
+  const suffixSource = seed.slice(-4).padStart(4, "0");
+  const baseValue = Number.parseInt(suffixSource, 36) || 0;
+
+  return [1, 2, 3].map((offset) => {
+    const nextValue = Math.max(baseValue - offset, 0)
+      .toString(36)
+      .toUpperCase()
+      .padStart(4, "0");
+    return `${prefix}-${nextValue}`;
+  });
+}
+
 function App() {
   const session = useSessionWebSocket();
+  const sessionState = useSessionState({
+    connectionStatus: session.status,
+    subscribeToEnvelopes: session.subscribeToEnvelopes,
+  });
   const camera = useCameraPreview({
     connectionStatus: session.status,
     sendMessage: session.sendMessage,
@@ -483,14 +546,14 @@ function App() {
     subscribeToEnvelopes: session.subscribeToEnvelopes,
   });
   const activeTaskContext =
+    sessionState.currentTaskContext ??
     taskControls.activeTaskContext ??
     verificationResult.taskContext ??
     verificationFlow.taskContext;
   const soundTriggerState = useSoundCueTriggers({
     cameraReady: camera.cameraReady,
     connectionStatus: session.status,
-    // TEMPORARY PROMPT 31 STUB: final case verdict state is introduced by later prompts.
-    finalVerdict: null,
+    finalVerdict: sessionState.finalVerdict,
     playCue: soundPlayback.playCue,
     startAmbientBed: soundPlayback.startAmbientBed,
     stopAmbientBed: soundPlayback.stopAmbientBed,
@@ -498,6 +561,30 @@ function App() {
     verificationAttemptId: verificationResult.attemptId,
     verificationStatus: verificationResult.status,
   });
+  const endTeardownHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (sessionState.state === "paused") {
+      operatorAudio.interruptPlayback();
+    }
+  }, [sessionState.state]);
+
+  useEffect(() => {
+    if (sessionState.state === "ended") {
+      if (endTeardownHandledRef.current) {
+        return;
+      }
+
+      endTeardownHandledRef.current = true;
+      operatorAudio.interruptPlayback();
+      soundPlayback.stopAmbientBed();
+      void microphone.stopMicrophone("session_ended");
+      void camera.stopCamera();
+      return;
+    }
+
+    endTeardownHandledRef.current = false;
+  }, [sessionState.state]);
 
   const isTransportActive =
     session.status === "connected" ||
@@ -544,6 +631,7 @@ function App() {
     active:
       session.status === "connected" &&
       permissionStage === "permissions_ready" &&
+      sessionState.state !== "paused" &&
       microphone.isStreaming &&
       verificationFlow.phase === "idle" &&
       !verificationResult.awaitingDecision &&
@@ -565,11 +653,45 @@ function App() {
     ? verificationFlow.operatorLine
     : verificationResult.operatorLine ??
       (verificationFlow.phase !== "captured" ? verificationFlow.operatorLine : null);
+  const endedOperatorPlaceholder =
+    sessionState.state === "ended" || sessionState.caseReport !== null
+      ? "Session ended. Media activity has been stopped. Review the case report and archive reference below."
+      : null;
+  const pausedOperatorPlaceholder =
+    sessionState.state === "paused"
+      ? "Session paused. Resume when ready. The current task, transcript context, and recovery state remain staged."
+      : null;
   const operatorPlaceholder =
+    endedOperatorPlaceholder ??
+    pausedOperatorPlaceholder ??
     verificationOperatorPlaceholder ??
     taskControls.swapOperatorLine ??
     waitingDialogue.currentLine ??
     fallbackOperatorPlaceholder;
+
+  const sessionStateHudOverrides = sessionState.hasSnapshot
+    ? {
+        activeTaskId: activeTaskContext?.taskId ?? undefined,
+        activeTaskName: activeTaskContext?.taskName ?? undefined,
+        taskRoleCategory: activeTaskContext?.taskRoleCategory ?? undefined,
+        taskTier: activeTaskContext?.taskTier ?? undefined,
+        pathMode: activeTaskContext?.pathMode ?? sessionState.currentPathMode ?? undefined,
+        protocolStep:
+          sessionState.currentStep?.replace(/_/g, " ") ??
+          sessionState.state?.replace(/_/g, " ") ??
+          undefined,
+        classificationLabel: sessionState.classificationLabel ?? undefined,
+        swapCount: sessionState.swapCount,
+        recoveryStep: sessionState.recoveryStep ?? undefined,
+        verificationStatus:
+          sessionState.verificationStatus?.replace(/_/g, " ") ?? undefined,
+        blockReason: sessionState.blockReason ?? undefined,
+        lastVerifiedItem: sessionState.lastVerifiedItem ?? undefined,
+        ...(sessionState.turnStatus
+          ? { turnStatus: sessionState.turnStatus.replace(/_/g, " ") }
+          : {}),
+      }
+    : {};
 
   const groundingHud = buildGroundingHudSnapshot({
     activeIssue,
@@ -582,20 +704,11 @@ function App() {
     lastCapturedFrame: camera.lastCapturedFrame,
     microphonePermission: microphone.permission,
     overrides: {
+      ...sessionStateHudOverrides,
       ...buildVerificationHudOverrides(
         verificationFlow.phase,
         verificationResult,
       ),
-      ...(activeTaskContext
-        ? {
-            activeTaskId: activeTaskContext.taskId ?? undefined,
-            activeTaskName: activeTaskContext.taskName ?? undefined,
-            taskRoleCategory: activeTaskContext.taskRoleCategory ?? undefined,
-            taskTier: activeTaskContext.taskTier ?? undefined,
-            pathMode: activeTaskContext.pathMode ?? undefined,
-          }
-        : {}),
-      swapCount: taskControls.swapCount,
       ...(operatorAudio.turnState === "interrupted"
         ? { turnStatus: { value: "Interrupted", tone: "warning" as const } }
         : operatorAudio.turnState === "listening"
@@ -610,17 +723,28 @@ function App() {
   const areTaskControlsVisible = session.status === "connected";
   const areTaskControlsArmed =
     areTaskControlsVisible && permissionStage === "permissions_ready";
-  const controlBarCopy = buildVerificationControlCopy(
-    isTransportActive,
-    permissionStage,
-    verificationFlow.phase,
-    verificationResult,
-  );
+  const pauseActionIsResume = sessionState.allowedActions.canResume;
+  const pauseButtonLabel = pauseActionIsResume ? "Resume Session" : "Pause Session";
+  const hasEndedReportView =
+    sessionState.state === "ended" ||
+    sessionState.state === "case_report" ||
+    sessionState.caseReport !== null;
+  const controlBarCopy = hasEndedReportView
+    ? "Session ended. Media activity was stopped cleanly and the report view is now staged below."
+    : sessionState.state === "paused"
+      ? "Session paused. Resume the hotline to continue task flow. Verification, swap, and recovery stay blocked until the line is resumed."
+      : buildVerificationControlCopy(
+          isTransportActive,
+          permissionStage,
+          verificationFlow.phase,
+          verificationResult,
+        );
   const isRecoveryRerouteRequired =
     verificationResult.status === "unconfirmed" &&
     verificationResult.retryAllowed === false;
   const canReadyToVerify =
     areTaskControlsArmed &&
+    sessionState.allowedActions.canVerify &&
     camera.cameraReady &&
     microphone.isStreaming &&
     !verificationFlow.isBusy &&
@@ -631,6 +755,7 @@ function App() {
     !taskControls.endSessionPending;
   const canSwapTask =
     areTaskControlsArmed &&
+    sessionState.allowedActions.canSwap &&
     !verificationFlow.isBusy &&
     !verificationResult.awaitingDecision &&
     !taskControls.swapPending &&
@@ -638,12 +763,14 @@ function App() {
     !taskControls.endSessionPending;
   const canPauseSession =
     areTaskControlsArmed &&
+    (sessionState.allowedActions.canPause || sessionState.allowedActions.canResume) &&
     !verificationFlow.isBusy &&
     !verificationResult.awaitingDecision &&
     !taskControls.pausePending &&
     !taskControls.endSessionPending;
   const canEndSession =
     areTaskControlsVisible &&
+    (sessionState.allowedActions.canEnd || !sessionState.hasSnapshot) &&
     !taskControls.endSessionPending;
   const subtitlePlaceholder = getTranscriptPlaceholder(
     session.status,
@@ -1130,8 +1257,105 @@ function App() {
           </div>
         </aside>
       </main>
+      {sessionState.caseReport ? (
+        <section className={`panel case-report-panel case-report-panel-${sessionState.caseReport.closingTemplate.tone}`} aria-label="Case report">
+          <div className="panel-heading">
+            <div>
+              <p className="panel-kicker">Case Report</p>
+              <h2>{sessionState.caseReport.closingTemplate.heading}</h2>
+            </div>
+            <span className={`panel-tag panel-tag-${sessionState.finalVerdict ?? "idle"}`}>
+              {formatVerdictLabel(sessionState.caseReport.finalVerdict)}
+            </span>
+          </div>
+          <div className="case-report-meta">
+            <article>
+              <span className="meta-label">Case ID</span>
+              <strong>{sessionState.caseReport.caseId}</strong>
+            </article>
+            <article>
+              <span className="meta-label">Generated</span>
+              <strong>{formatCaseReportTimestamp(sessionState.caseReport.generatedAt)}</strong>
+            </article>
+            <article>
+              <span className="meta-label">Classification</span>
+              <strong>{sessionState.caseReport.incidentClassificationLabel}</strong>
+            </article>
+            <article>
+              <span className="meta-label">Verdict</span>
+              <strong>{formatVerdictLabel(sessionState.caseReport.finalVerdict)}</strong>
+            </article>
+          </div>
+          <article className="case-report-summary">
+            <p className="case-report-summary-label">Incident Summary</p>
+            <p className="case-report-summary-copy">
+              {sessionState.caseReport.incidentClassificationSummary}
+            </p>
+            <div className="case-report-counts">
+              <span className="control-chip case-report-chip-confirmed">
+                Confirmed {sessionState.caseReport.counts.confirmed}
+              </span>
+              <span className="control-chip case-report-chip-user-confirmed">
+                User Confirmed {sessionState.caseReport.counts.user_confirmed_only}
+              </span>
+              <span className="control-chip case-report-chip-unverified">
+                Unverified {sessionState.caseReport.counts.unverified}
+              </span>
+              <span className="control-chip case-report-chip-skipped">
+                Skipped {sessionState.caseReport.counts.skipped}
+              </span>
+            </div>
+          </article>
+          <article className={`case-report-closing case-report-closing-${sessionState.caseReport.closingTemplate.tone}`}>
+            <p className="case-report-summary-label">Closing Line</p>
+            <p className="case-report-summary-copy">
+              {sessionState.caseReport.closingTemplate.closingLine}
+            </p>
+          </article>
 
-      <footer className="panel control-bar" aria-label="Control bar">
+          <article className="case-report-archive" aria-label="Containment Desk archive reference">
+            <div className="case-report-archive-header">
+              <p className="case-report-summary-label">Containment Desk Archive Reference</p>
+              <span className="control-chip">Current {sessionState.caseReport.caseId}</span>
+            </div>
+            <div className="case-report-archive-list" role="list">
+              {buildArchiveReferences(sessionState.caseReport.caseId).map((reference) => (
+                <span className="case-report-archive-chip" key={reference} role="listitem">
+                  {reference}
+                </span>
+              ))}
+            </div>
+          </article>
+
+          <div className="case-report-task-list" role="list">
+            {sessionState.caseReport.tasks.map((task) => (
+              <article className="case-report-task-row" key={`${task.taskId}-${task.origin}`} role="listitem">
+                <div className="case-report-task-header">
+                  <div>
+                    <p className="case-report-task-step">{task.protocolStep ?? "Unmapped step"}</p>
+                    <h3>
+                      {task.taskName} <span>({task.taskId})</span>
+                    </h3>
+                  </div>
+                  <span
+                    className={`case-report-outcome case-report-outcome-${task.outcome.replace(/_/g, "-")}`}
+                  >
+                    {formatCaseReportOutcome(task.outcome)}
+                  </span>
+                </div>
+                <div className="case-report-task-meta">
+                  <span className="control-chip">Tier {task.taskTier}</span>
+                  <span className="control-chip">{task.taskRoleCategory}</span>
+                  <span className="control-chip">
+                    {task.origin === "substitute" ? "Substitute Task" : "Planned Task"}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      <footer className="panel control-bar" aria-label="Control bar"> 
         <div className="control-bar-copy">
           <div>
             <p className="panel-kicker">Control Bar</p>
@@ -1212,10 +1436,10 @@ function App() {
               className="secondary-button"
               disabled={!canPauseSession}
               onClick={() => {
-                taskControls.requestPauseSession();
+                taskControls.requestPauseSession(!pauseActionIsResume);
               }}
             >
-              {taskControls.pausePending ? "Sending Pause Request" : "Pause Session"}
+              {taskControls.pausePending ? `Sending ${pauseButtonLabel}` : pauseButtonLabel}
             </button>
           ) : null}
 
@@ -1238,6 +1462,28 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

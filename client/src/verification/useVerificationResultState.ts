@@ -60,7 +60,7 @@ interface UseVerificationResultStateOptions {
 
 interface VerificationStateEnvelopePayload {
   attemptId: string;
-  status: "pending" | "captured";
+  status: "pending" | "captured" | "cancelled";
   taskContext: VerificationTaskContext | null;
 }
 
@@ -211,7 +211,7 @@ function parseVerificationStatePayload(
   const status = payload.status;
   if (
     attemptId === null ||
-    (status !== "pending" && status !== "captured")
+    (status !== "pending" && status !== "captured" && status !== "cancelled")
   ) {
     return null;
   }
@@ -492,6 +492,11 @@ export function useVerificationResultState(
           return;
         }
 
+        if (payload.status === "cancelled") {
+          setState(IDLE_RESULT_STATE);
+          return;
+        }
+
         setState({
           ...IDLE_RESULT_STATE,
           attemptId: payload.attemptId,
@@ -556,3 +561,4 @@ export function useVerificationResultState(
 
   return state;
 }
+

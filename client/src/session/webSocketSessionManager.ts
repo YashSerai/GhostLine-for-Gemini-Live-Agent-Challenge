@@ -9,7 +9,7 @@ import {
 const DEFAULT_RECONNECT_DELAYS_MS = [1000, 2000, 4000] as const;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 3;
 const MAX_TRANSPORT_LOG_ENTRIES = 6;
-const NON_LOGGED_TRANSPORT_TYPES = new Set(["audio_chunk", "operator_audio_chunk", "transcript"]);
+const NON_LOGGED_TRANSPORT_TYPES = new Set(["audio_chunk", "operator_audio_chunk", "transcript", "session_state"]);
 
 type SnapshotListener = (snapshot: SessionManagerSnapshot) => void;
 
@@ -392,5 +392,6 @@ export class WebSocketSessionManager {
     });
   }
 }
+
 
 
