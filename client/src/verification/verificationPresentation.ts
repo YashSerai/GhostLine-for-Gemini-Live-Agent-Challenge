@@ -22,6 +22,20 @@ function buildResultProtocolStep(
     case "user_confirmed_only":
       return createHudOverride("Verification logged as caller-confirmed", "live");
     case "unconfirmed":
+      if (
+        verificationResult.recoveryAttemptCount !== null &&
+        verificationResult.recoveryAttemptLimit !== null
+      ) {
+        return createHudOverride(
+          `Recovery step ${verificationResult.recoveryAttemptCount} of ${verificationResult.recoveryAttemptLimit}`,
+          "warning",
+        );
+      }
+
+      if (verificationResult.retryAllowed === false) {
+        return createHudOverride("Recovery reroute required", "warning");
+      }
+
       return createHudOverride("Verification recovery required", "warning");
     default:
       return createHudOverride("Verification pending", "placeholder");
@@ -35,6 +49,26 @@ function buildAwaitingDecisionOverrides(): GroundingHudOverrides {
     blockReason: createHudOverride("Backend verification in progress", "live"),
     recoveryStep: createHudOverride("Hold the line until the verdict returns", "live"),
   };
+}
+
+function buildRecoveryHudValue(
+  verificationResult: VerificationResultState,
+): GroundingHudValueOverride | undefined {
+  if (verificationResult.recoveryStep === null) {
+    return undefined;
+  }
+
+  if (verificationResult.recoveryStepLabel !== null) {
+    return createHudOverride(
+      `${verificationResult.recoveryStepLabel}: ${verificationResult.recoveryStep}`,
+      verificationResult.status === "unconfirmed" ? "warning" : "live",
+    );
+  }
+
+  return createHudOverride(
+    verificationResult.recoveryStep,
+    verificationResult.status === "unconfirmed" ? "warning" : "live",
+  );
 }
 
 export function buildVerificationHudOverrides(
@@ -61,13 +95,7 @@ export function buildVerificationHudOverrides(
       pathMode:
         verificationResult.currentPathMode ?? taskContext?.pathMode ?? undefined,
       protocolStep: buildResultProtocolStep(verificationResult),
-      recoveryStep:
-        verificationResult.recoveryStep !== null
-          ? createHudOverride(
-              verificationResult.recoveryStep,
-              verificationResult.status === "unconfirmed" ? "warning" : "live",
-            )
-          : undefined,
+      recoveryStep: buildRecoveryHudValue(verificationResult),
       taskRoleCategory: taskContext?.taskRoleCategory ?? undefined,
       taskTier: taskContext?.taskTier ?? undefined,
       verificationStatus: createHudOverride(
@@ -129,6 +157,25 @@ export function buildVerificationControlCopy(
 
     if (verificationResult.progressionDirective === "wait") {
       return "The last verification is logged as caller-confirmed only. It remains visibly distinct from a full visual confirmation and should wait for operator review.";
+    }
+
+    if (verificationResult.retryAllowed === false) {
+      if (verificationResult.suggestedPathMode !== null) {
+        return `Verification retries are exhausted for this task. Switch path mode to ${verificationResult.suggestedPathMode.replace(/_/g, " ")} before requesting another verification window.`;
+      }
+
+      if (verificationResult.substituteTaskSuggestion !== null) {
+        return `Verification retries are exhausted for this task. Switch to ${verificationResult.substituteTaskSuggestion.taskName} before requesting another verification window.`;
+      }
+
+      return "Verification retries are exhausted for this task. Switch path mode or substitute the task before requesting another verification window.";
+    }
+
+    if (
+      verificationResult.recoveryAttemptCount !== null &&
+      verificationResult.recoveryAttemptLimit !== null
+    ) {
+      return `The last verification was unconfirmed. Recovery step ${verificationResult.recoveryAttemptCount} of ${verificationResult.recoveryAttemptLimit}: ${verificationResult.recoveryStep ?? "adjust the setup and retry Ready to Verify."}`;
     }
 
     return `The last verification was unconfirmed. ${verificationResult.recoveryStep ?? "Adjust the framing or task setup, then retry Ready to Verify."}`;

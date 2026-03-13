@@ -165,6 +165,12 @@ h2 {
   background: var(--success-soft);
 }
 
+.status-pill-warning,
+.panel-tag-warning {
+  border-color: rgba(216, 180, 109, 0.36);
+  background: var(--warning-soft);
+}
+
 .status-pill-reconnecting,
 .status-pill-connecting,
 .panel-tag-reconnecting,
@@ -930,4 +936,5 @@ h2 {
   line-height: 1.6;
   color: var(--muted);
 }
+
 

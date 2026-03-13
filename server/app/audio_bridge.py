@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from .gemini_live import GeminiLiveEvent, GeminiLiveSession, GeminiLiveSessionManager
+from .logging_utils import log_event
 from .verification_flow import VerificationFlowError
 from .verification_intent import parse_ready_to_verify_voice_intent
 from .voice_intent import build_swap_request_payload, parse_swap_voice_intent
@@ -31,6 +32,7 @@ _TEMPORARY_AUDIO_INPUT_SYSTEM_INSTRUCTION = (
 )
 ForwardEnvelope = Callable[[dict[str, Any]], Awaitable[None]]
 StartVerificationCallback = Callable[[dict[str, Any]], Awaitable[None]]
+HandleSwapRequestCallback = Callable[[dict[str, Any]], Awaitable[None]]
 RecordUserTranscriptCallback = Callable[[str, bool], None]
 
 
@@ -56,12 +58,14 @@ class SessionAudioBridge:
         gemini_session_manager: GeminiLiveSessionManager,
         forward_envelope: ForwardEnvelope,
         start_verification: StartVerificationCallback | None = None,
+        handle_swap_request: HandleSwapRequestCallback | None = None,
         record_user_transcript: RecordUserTranscriptCallback | None = None,
     ) -> None:
         self.session_id = session_id
         self._gemini_session_manager = gemini_session_manager
         self._forward_envelope = forward_envelope
         self._start_verification = start_verification
+        self._handle_swap_request = handle_swap_request
         self._record_user_transcript = record_user_transcript
         self._gemini_session: GeminiLiveSession | None = None
         self._receive_task: asyncio.Task[None] | None = None
@@ -71,6 +75,9 @@ class SessionAudioBridge:
         self._last_sequence = -1
         self._active_mime_type = DEFAULT_AUDIO_MIME_TYPE
         self._operator_audio_sequence = 0
+        self._operator_playback_epoch = 0
+        self._discard_operator_audio = False
+        self._pending_epoch_advance = False
 
     async def start_stream(self, payload: dict[str, Any]) -> None:
         streaming = payload.get("streaming")
@@ -194,6 +201,9 @@ class SessionAudioBridge:
             )
             self._drained_event_count = 0
             self._operator_audio_sequence = 0
+            self._operator_playback_epoch = 0
+            self._discard_operator_audio = False
+            self._pending_epoch_advance = False
 
         if self._receive_task is None or self._receive_task.done():
             self._receive_task = asyncio.create_task(self._drain_gemini_events())
@@ -236,6 +246,18 @@ class SessionAudioBridge:
             if not isinstance(raw_audio, (bytes, bytearray)):
                 return
 
+            if self._discard_operator_audio:
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "operator_audio_chunk_discarded",
+                    session_id=self.session_id,
+                    playback_epoch=self._operator_playback_epoch,
+                    byte_count=len(raw_audio),
+                    reason="interruption_flush_active",
+                )
+                return
+
             self._operator_audio_sequence += 1
             mime_type = event.payload.get("mimeType", DEFAULT_AUDIO_MIME_TYPE)
             await self._forward_envelope(
@@ -244,6 +266,7 @@ class SessionAudioBridge:
                     "sessionId": self.session_id,
                     "payload": {
                         "sequence": self._operator_audio_sequence,
+                        "playbackEpoch": self._operator_playback_epoch,
                         "mimeType": mime_type,
                         "data": base64.b64encode(bytes(raw_audio)).decode("ascii"),
                         "byteCount": len(raw_audio),
@@ -255,6 +278,7 @@ class SessionAudioBridge:
                 logging.INFO,
                 "operator_audio_chunk_forwarded",
                 session_id=self.session_id,
+                playback_epoch=self._operator_playback_epoch,
                 sequence=self._operator_audio_sequence,
                 byte_count=len(raw_audio),
                 mime_type=mime_type,
@@ -262,11 +286,19 @@ class SessionAudioBridge:
             return
 
         if event.event_type == "interruption":
+            interrupted = bool(event.payload.get("interrupted", False))
+            if interrupted:
+                self._discard_operator_audio = True
+                self._pending_epoch_advance = True
+
             await self._forward_envelope(
                 {
                     "type": "operator_interruption",
                     "sessionId": self.session_id,
-                    "payload": event.payload,
+                    "payload": {
+                        **event.payload,
+                        "playbackEpoch": self._operator_playback_epoch,
+                    },
                 }
             )
             log_event(
@@ -274,8 +306,28 @@ class SessionAudioBridge:
                 logging.INFO,
                 "operator_audio_interruption_forwarded",
                 session_id=self.session_id,
-                interrupted=bool(event.payload.get("interrupted", False)),
+                interrupted=interrupted,
+                playback_epoch=self._operator_playback_epoch,
             )
+            return
+
+        if event.event_type in {"generation_complete", "turn_complete"}:
+            completed = bool(
+                event.payload.get("generationComplete", False)
+                or event.payload.get("turnComplete", False)
+            )
+            if self._pending_epoch_advance and completed:
+                self._discard_operator_audio = False
+                self._pending_epoch_advance = False
+                self._operator_playback_epoch += 1
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "operator_audio_flush_released",
+                    session_id=self.session_id,
+                    released_by=event.event_type,
+                    playback_epoch=self._operator_playback_epoch,
+                )
             return
 
         if event.event_type in {"input_transcription", "output_transcription"}:
@@ -309,6 +361,18 @@ class SessionAudioBridge:
                     text_preview=text[:80],
                 )
                 if direction == "input" and is_final:
+                    if self._pending_epoch_advance:
+                        self._discard_operator_audio = False
+                        self._pending_epoch_advance = False
+                        self._operator_playback_epoch += 1
+                        log_event(
+                            LOGGER,
+                            logging.INFO,
+                            "operator_audio_flush_released",
+                            session_id=self.session_id,
+                            released_by="input_transcription",
+                            playback_epoch=self._operator_playback_epoch,
+                        )
                     if self._record_user_transcript is not None:
                         self._record_user_transcript(text.strip(), is_final)
                     ready_to_verify_intent = parse_ready_to_verify_voice_intent(text)
@@ -344,15 +408,18 @@ class SessionAudioBridge:
 
                     swap_request = parse_swap_voice_intent(text)
                     if swap_request is not None:
+                        swap_payload = {
+                            "source": "voice_intent",
+                            "matchedPhrase": swap_request.matched_phrase,
+                            **build_swap_request_payload(swap_request),
+                        }
                         await self._forward_envelope(
                             {
                                 "type": "swap_request",
                                 "sessionId": self.session_id,
                                 "payload": {
                                     "status": "detected",
-                                    "source": "voice_intent",
-                                    "matchedPhrase": swap_request.matched_phrase,
-                                    **build_swap_request_payload(swap_request),
+                                    **swap_payload,
                                 },
                             }
                         )
@@ -364,6 +431,8 @@ class SessionAudioBridge:
                             matchedPhrase=swap_request.matched_phrase,
                             **build_swap_request_payload(swap_request),
                         )
+                        if self._handle_swap_request is not None:
+                            await self._handle_swap_request(swap_payload)
             return
 
         if event.event_type != "raw_message":
@@ -420,6 +489,11 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
+
+
+
+
+
 
 
 

@@ -16,6 +16,7 @@ from .capability_profile import (
     build_capability_profile,
 )
 from .logging_utils import log_event
+from .recovery_ladder import RecoveryDirective, VerificationRecoveryLadder
 from .verification_engine import (
     VerificationContext,
     VerificationDecision,
@@ -99,6 +100,7 @@ class SessionVerificationFlow:
         self._microphone_streaming = False
         self._verification_engine = verification_engine
         self._recent_user_transcripts: list[str] = []
+        self._recovery_ladder = VerificationRecoveryLadder()
 
     @property
     def is_pending(self) -> bool:
@@ -152,6 +154,15 @@ class SessionVerificationFlow:
             raw_transcript_snippet = None
 
         task_context = _build_task_context(payload.get("taskContext"))
+        recovery_path_mode = _resolve_recovery_path_mode(task_context)
+        if self._recovery_ladder.is_retry_exhausted(
+            task_context=task_context,
+            current_path_mode=recovery_path_mode,
+        ):
+            raise VerificationFlowError(
+                "This verification path is still blocked. Switch path mode or substitute task before another Ready to Verify attempt."
+            )
+
         attempt = VerificationAttempt(
             attempt_id=f"verify-{uuid4().hex}",
             capture_window_ms=_CAPTURE_WINDOW_MS,
@@ -356,6 +367,36 @@ class SessionVerificationFlow:
         capability_profile: Any,
         current_path_mode: str,
     ) -> None:
+        recovery_directive: RecoveryDirective | None = None
+        if decision.status == "unconfirmed":
+            recovery_directive = self._recovery_ladder.build_directive(
+                block_reason=decision.block_reason,
+                capability_profile=capability_profile,
+                current_path_mode=current_path_mode,
+                reason=decision.reason,
+                task_context=attempt.task_context,
+            )
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "verification_recovery_step_selected",
+                session_id=self.session_id,
+                verification_attempt_id=attempt.attempt_id,
+                recovery_step_key=recovery_directive.step_key,
+                recovery_attempt_count=recovery_directive.attempt_count,
+                suggested_path_mode=recovery_directive.suggested_path_mode,
+                substitute_task_id=(
+                    recovery_directive.substitute_task.task_id
+                    if recovery_directive.substitute_task is not None
+                    else None
+                ),
+            )
+        else:
+            self._recovery_ladder.reset(
+                task_context=attempt.task_context,
+                current_path_mode=current_path_mode,
+            )
+
         await self._forward_envelope(
             {
                 "type": "verification_result",
@@ -384,9 +425,20 @@ class SessionVerificationFlow:
                         "reasons": capability_profile.environment.reasons,
                     },
                     "taskContext": attempt.task_context,
+                    **(
+                        recovery_directive.to_payload()
+                        if recovery_directive is not None
+                        else {}
+                    ),
                 },
             }
         )
+
+        if recovery_directive is not None:
+            await self._forward_transcript(
+                text=recovery_directive.operator_line,
+                source="recovery_ladder",
+            )
 
 
 def _build_task_context(raw_value: Any) -> dict[str, Any]:
@@ -589,6 +641,13 @@ def _resolve_current_path_mode(
     return capability_profile.environment.path_mode
 
 
+def _resolve_recovery_path_mode(task_context: dict[str, Any]) -> str:
+    path_mode = task_context.get("pathMode")
+    if isinstance(path_mode, str) and path_mode in _VALID_PATH_MODES:
+        return path_mode
+    return "unresolved"
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -597,4 +656,7 @@ __all__ = [
     "SessionVerificationFlow",
     "VerificationFlowError",
 ]
+
+
+
 

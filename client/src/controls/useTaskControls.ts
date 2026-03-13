@@ -5,9 +5,11 @@ import type {
   SessionEnvelope,
   SessionEnvelopeListener,
 } from "../session/sessionTypes";
+import type { VerificationTaskContext } from "../verification/useReadyToVerifyFlow";
 
 type TaskControlMessageType = "verify_request" | "swap_request" | "pause" | "stop";
 type TaskControlNoticeTone = "pending" | "ready" | "warning";
+type SwapOutcomeStatus = "clarifying_question" | "substituted" | "partial_handling";
 
 export interface TaskControlNotice {
   body: string;
@@ -16,14 +18,22 @@ export interface TaskControlNotice {
 }
 
 export interface TaskControlState {
+  activeTaskContext: VerificationTaskContext | null;
   endSessionPending: boolean;
   lastNotice: TaskControlNotice | null;
   pausePending: boolean;
   readyToVerifyPending: boolean;
   requestEndSession: () => boolean;
   requestPauseSession: () => boolean;
-  requestReadyToVerify: () => boolean;
-  requestSwapTask: () => boolean;
+  requestReadyToVerify: (options?: {
+    taskContext?: VerificationTaskContext | null;
+  }) => boolean;
+  requestSwapTask: (options?: {
+    taskContext?: VerificationTaskContext | null;
+  }) => boolean;
+  swapCount: number;
+  swapLimit: number | null;
+  swapOperatorLine: string | null;
   swapPending: boolean;
 }
 
@@ -40,6 +50,16 @@ interface PendingTaskControlState {
   stop: boolean;
   swap_request: boolean;
   verify_request: boolean;
+}
+
+interface SwapOutcomePayload {
+  clarifyingQuestion: string | null;
+  operatorLine: string | null;
+  status: SwapOutcomeStatus;
+  substituteTaskName: string | null;
+  swapCount: number;
+  swapLimit: number | null;
+  taskContext: VerificationTaskContext | null;
 }
 
 const IDLE_PENDING_STATE: PendingTaskControlState = {
@@ -198,6 +218,94 @@ function setPendingFlag(
   };
 }
 
+function parseTaskContext(value: unknown): VerificationTaskContext | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as VerificationTaskContext;
+}
+
+function parseSwapOutcomePayload(
+  payload: Record<string, unknown>,
+): SwapOutcomePayload | null {
+  const status = payload.status;
+  if (
+    status !== "clarifying_question" &&
+    status !== "substituted" &&
+    status !== "partial_handling"
+  ) {
+    return null;
+  }
+
+  const swapCount =
+    typeof payload.swapCount === "number" && Number.isFinite(payload.swapCount)
+      ? Math.trunc(payload.swapCount)
+      : 0;
+  const swapLimit =
+    typeof payload.swapLimit === "number" && Number.isFinite(payload.swapLimit)
+      ? Math.trunc(payload.swapLimit)
+      : null;
+  const substituteTaskValue = payload.substituteTask;
+  const substituteTaskName =
+    typeof substituteTaskValue === "object" &&
+    substituteTaskValue !== null &&
+    !Array.isArray(substituteTaskValue) &&
+    typeof (substituteTaskValue as Record<string, unknown>).taskName === "string"
+      ? ((substituteTaskValue as Record<string, unknown>).taskName as string)
+      : null;
+
+  return {
+    clarifyingQuestion:
+      typeof payload.clarifyingQuestion === "string" &&
+      payload.clarifyingQuestion.trim().length > 0
+        ? payload.clarifyingQuestion.trim()
+        : null,
+    operatorLine:
+      typeof payload.operatorLine === "string" && payload.operatorLine.trim().length > 0
+        ? payload.operatorLine.trim()
+        : null,
+    status,
+    substituteTaskName,
+    swapCount,
+    swapLimit,
+    taskContext: parseTaskContext(payload.taskContext),
+  };
+}
+
+function createSwapOutcomeNotice(payload: SwapOutcomePayload): TaskControlNotice {
+  if (payload.status === "clarifying_question") {
+    return {
+      title: "Clarification Needed",
+      body:
+        payload.clarifyingQuestion ??
+        payload.operatorLine ??
+        "The backend needs one clarifying detail before it can place a substitute task.",
+      tone: "pending",
+    };
+  }
+
+  if (payload.status === "substituted") {
+    return {
+      title: "Task Substituted",
+      body:
+        payload.operatorLine ??
+        (payload.substituteTaskName
+          ? `The backend routed the case to ${payload.substituteTaskName}.`
+          : "The backend selected a substitute task."),
+      tone: "ready",
+    };
+  }
+
+  return {
+    title: "Constraint Logged",
+    body:
+      payload.operatorLine ??
+      "The backend logged the capability constraint and kept the case moving with partial handling.",
+    tone: "warning",
+  };
+}
+
 export function useTaskControls(
   options: UseTaskControlsOptions,
 ): TaskControlState {
@@ -207,6 +315,11 @@ export function useTaskControls(
     IDLE_PENDING_STATE,
   );
   const [lastNotice, setLastNotice] = useState<TaskControlNotice | null>(null);
+  const [activeTaskContext, setActiveTaskContext] =
+    useState<VerificationTaskContext | null>(null);
+  const [swapCount, setSwapCount] = useState(0);
+  const [swapLimit, setSwapLimit] = useState<number | null>(null);
+  const [swapOperatorLine, setSwapOperatorLine] = useState<string | null>(null);
 
   useEffect(() => {
     if (connectionStatus === "connecting") {
@@ -216,6 +329,10 @@ export function useTaskControls(
     if (connectionStatus === "disconnected" || connectionStatus === "error") {
       pendingRequestsRef.current.clear();
       setPending(IDLE_PENDING_STATE);
+      setActiveTaskContext(null);
+      setSwapCount(0);
+      setSwapLimit(null);
+      setSwapOperatorLine(null);
     }
   }, [connectionStatus]);
 
@@ -232,6 +349,19 @@ export function useTaskControls(
       ) {
         setLastNotice(createVoiceSwapDetectedNotice(envelope.payload));
         return;
+      }
+
+      if (envelope.type === "swap_request") {
+        const swapOutcome = parseSwapOutcomePayload(envelope.payload);
+        if (swapOutcome !== null) {
+          setSwapCount(swapOutcome.swapCount);
+          setSwapLimit(swapOutcome.swapLimit);
+          setSwapOperatorLine(swapOutcome.operatorLine);
+          if (swapOutcome.taskContext !== null) {
+            setActiveTaskContext(swapOutcome.taskContext);
+          }
+          setLastNotice(createSwapOutcomeNotice(swapOutcome));
+        }
       }
 
       if (envelope.type === "error") {
@@ -264,6 +394,9 @@ export function useTaskControls(
       setPending((current) => setPendingFlag(current, messageType, false));
 
       if (payloadStatus === "accepted") {
+        if (messageType === "swap_request") {
+          return;
+        }
         setLastNotice(createAcceptedNotice(messageType));
       }
     });
@@ -301,20 +434,26 @@ export function useTaskControls(
     return true;
   }
 
-  function requestReadyToVerify(): boolean {
+  function requestReadyToVerify(options?: {
+    taskContext?: VerificationTaskContext | null;
+  }): boolean {
     return sendTaskControl("verify_request", {
       action: "ready_to_verify",
       source: "control_bar",
       trigger: "button",
+      taskContext: options?.taskContext ?? activeTaskContext,
     });
   }
 
-  function requestSwapTask(): boolean {
+  function requestSwapTask(options?: {
+    taskContext?: VerificationTaskContext | null;
+  }): boolean {
     return sendTaskControl("swap_request", {
       action: "swap_task",
       reason: "cant_do_this",
       source: "control_bar",
       trigger: "button",
+      taskContext: options?.taskContext ?? activeTaskContext,
     });
   }
 
@@ -337,6 +476,7 @@ export function useTaskControls(
   }
 
   return {
+    activeTaskContext,
     endSessionPending: pending.stop,
     lastNotice,
     pausePending: pending.pause,
@@ -345,9 +485,10 @@ export function useTaskControls(
     requestPauseSession,
     requestReadyToVerify,
     requestSwapTask,
+    swapCount,
+    swapLimit,
+    swapOperatorLine,
     swapPending: pending.swap_request,
   };
 }
-
-
 

@@ -15,6 +15,14 @@ export type VerificationProgressionDirective = "advance" | "recover" | "wait";
 export type VerificationStatusTone = "success" | "live" | "warning" | "placeholder";
 export type VerificationCardTone = "ready" | "pending" | "warning";
 
+export interface VerificationSubstituteTaskSuggestion {
+  storyFunction: string;
+  substitutionGroup: string;
+  taskId: string;
+  taskName: string;
+  tier: number;
+}
+
 export interface VerificationResultState {
   attemptId: string | null;
   awaitingDecision: boolean;
@@ -31,10 +39,17 @@ export interface VerificationResultState {
   operatorLine: string | null;
   progressionDirective: VerificationProgressionDirective;
   reason: string | null;
+  recoveryAttemptCount: number | null;
+  recoveryAttemptLimit: number | null;
   recoveryStep: string | null;
+  recoveryStepKey: string | null;
+  recoveryStepLabel: string | null;
+  retryAllowed: boolean | null;
   status: VerificationResultStatus | null;
   statusLabel: string;
   statusTone: VerificationStatusTone;
+  substituteTaskSuggestion: VerificationSubstituteTaskSuggestion | null;
+  suggestedPathMode: string | null;
   taskContext: VerificationTaskContext | null;
 }
 
@@ -58,7 +73,16 @@ interface VerificationResultEnvelopePayload {
   lastVerifiedItem: string | null;
   notes: string | null;
   reason: string | null;
+  recoveryAttemptCount: number | null;
+  recoveryAttemptLimit: number | null;
+  recoveryOperatorLine: string | null;
+  recoveryStep: string | null;
+  recoveryStepKey: string | null;
+  recoveryStepLabel: string | null;
+  retryAllowed: boolean | null;
   status: VerificationResultStatus;
+  substituteTaskSuggestion: VerificationSubstituteTaskSuggestion | null;
+  suggestedPathMode: string | null;
   taskContext: VerificationTaskContext | null;
 }
 
@@ -78,10 +102,17 @@ const IDLE_RESULT_STATE: VerificationResultState = {
   operatorLine: null,
   progressionDirective: "wait",
   reason: null,
+  recoveryAttemptCount: null,
+  recoveryAttemptLimit: null,
   recoveryStep: null,
+  recoveryStepKey: null,
+  recoveryStepLabel: null,
+  retryAllowed: null,
   status: null,
   statusLabel: "Pending",
   statusTone: "placeholder",
+  substituteTaskSuggestion: null,
+  suggestedPathMode: null,
   taskContext: null,
 };
 
@@ -93,6 +124,26 @@ function getPayloadString(
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function getPayloadInteger(
+  payload: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = payload[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+
+  return Math.trunc(value);
+}
+
+function getPayloadBoolean(
+  payload: Record<string, unknown>,
+  key: string,
+): boolean | null {
+  const value = payload[key];
+  return typeof value === "boolean" ? value : null;
+}
+
 function parseTaskContext(
   value: unknown,
 ): VerificationTaskContext | null {
@@ -101,6 +152,56 @@ function parseTaskContext(
   }
 
   return value as VerificationTaskContext;
+}
+
+function parseSubstituteTaskSuggestion(
+  value: unknown,
+): VerificationSubstituteTaskSuggestion | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const taskId =
+    typeof record.task_id === "string" && record.task_id.trim().length > 0
+      ? record.task_id.trim()
+      : null;
+  const taskName =
+    typeof record.task_name === "string" && record.task_name.trim().length > 0
+      ? record.task_name.trim()
+      : null;
+  const substitutionGroup =
+    typeof record.substitution_group === "string" &&
+    record.substitution_group.trim().length > 0
+      ? record.substitution_group.trim()
+      : null;
+  const storyFunction =
+    typeof record.story_function === "string" &&
+    record.story_function.trim().length > 0
+      ? record.story_function.trim()
+      : null;
+  const tier =
+    typeof record.tier === "number" && Number.isFinite(record.tier)
+      ? Math.trunc(record.tier)
+      : null;
+
+  if (
+    taskId === null ||
+    taskName === null ||
+    substitutionGroup === null ||
+    storyFunction === null ||
+    tier === null
+  ) {
+    return null;
+  }
+
+  return {
+    storyFunction,
+    substitutionGroup,
+    taskId,
+    taskName,
+    tier,
+  };
 }
 
 function parseVerificationStatePayload(
@@ -151,7 +252,16 @@ function parseVerificationResultPayload(
     lastVerifiedItem: getPayloadString(payload, "lastVerifiedItem"),
     notes: getPayloadString(payload, "notes"),
     reason: getPayloadString(payload, "reason"),
+    recoveryAttemptCount: getPayloadInteger(payload, "recoveryAttemptCount"),
+    recoveryAttemptLimit: getPayloadInteger(payload, "recoveryAttemptLimit"),
+    recoveryOperatorLine: getPayloadString(payload, "recoveryOperatorLine"),
+    recoveryStep: getPayloadString(payload, "recoveryStep"),
+    recoveryStepKey: getPayloadString(payload, "recoveryStepKey"),
+    recoveryStepLabel: getPayloadString(payload, "recoveryStepLabel"),
+    retryAllowed: getPayloadBoolean(payload, "retryAllowed"),
     status,
+    substituteTaskSuggestion: parseSubstituteTaskSuggestion(payload.substituteTaskSuggestion),
+    suggestedPathMode: getPayloadString(payload, "suggestedPathMode"),
     taskContext: parseTaskContext(payload.taskContext),
   };
 }
@@ -160,7 +270,12 @@ function buildRecoveryStep(
   status: VerificationResultStatus,
   blockReason: string | null,
   reason: string | null,
+  backendRecoveryStep: string | null,
 ): string | null {
+  if (backendRecoveryStep !== null) {
+    return backendRecoveryStep;
+  }
+
   if (status === "confirmed") {
     return "Ready for the next operator step once the session state advances.";
   }
@@ -275,6 +390,7 @@ function buildOperatorLine(
   status: VerificationResultStatus,
   reason: string | null,
   recoveryStep: string | null,
+  recoveryOperatorLine: string | null,
 ): string {
   if (status === "confirmed") {
     return reason
@@ -288,6 +404,10 @@ function buildOperatorLine(
       : "I can log that as caller-confirmed only, not visually confirmed.";
   }
 
+  if (recoveryOperatorLine) {
+    return recoveryOperatorLine;
+  }
+
   if (reason && recoveryStep) {
     return `I can't confirm that yet. ${reason} ${recoveryStep}`;
   }
@@ -299,43 +419,57 @@ function buildOperatorLine(
   return "I can't confirm that yet. Adjust the setup and retry the verification window.";
 }
 
-function buildCardTitle(status: VerificationResultStatus): string {
+function buildCardTitle(
+  status: VerificationResultStatus,
+  recoveryStepLabel: string | null,
+): string {
   switch (status) {
     case "confirmed":
       return "Verification Confirmed";
     case "user_confirmed_only":
       return "Verification Logged as User-Confirmed Only";
     case "unconfirmed":
-      return "Verification Unconfirmed";
+      return recoveryStepLabel ?? "Verification Unconfirmed";
     default:
       return "Verification Pending";
   }
 }
 
 function buildCardBody(
-  status: VerificationResultStatus,
-  reason: string | null,
+  payload: VerificationResultEnvelopePayload,
   recoveryStep: string | null,
 ): string {
-  if (status === "confirmed") {
-    return reason ?? "The verification window produced a full visual confirmation.";
+  if (payload.status === "confirmed") {
+    return payload.reason ?? "The verification window produced a full visual confirmation.";
   }
 
-  if (status === "user_confirmed_only") {
-    return reason
-      ? `${reason} This remains visibly distinct from a full visual confirmation.`
+  if (payload.status === "user_confirmed_only") {
+    return payload.reason
+      ? `${payload.reason} This remains visibly distinct from a full visual confirmation.`
       : "The step was logged as caller-confirmed only. This remains visibly distinct from a full visual confirmation.";
   }
 
-  if (reason && recoveryStep) {
-    return `${reason} Recovery: ${recoveryStep}`;
+  const baseReason =
+    payload.reason ??
+    "The verification window did not provide enough evidence to confirm the step.";
+
+  if (payload.retryAllowed === false) {
+    if (payload.suggestedPathMode) {
+      return `${baseReason} This verification path is exhausted. Reroute to the ${payload.suggestedPathMode.replace(/_/g, " ")} path instead of retrying the same hold.`;
+    }
+
+    if (payload.substituteTaskSuggestion) {
+      return `${baseReason} This verification path is exhausted. Switch to ${payload.substituteTaskSuggestion.taskName} as the safer substitute step.`;
+    }
+
+    return `${baseReason} This verification path is exhausted. Do not keep retrying the same blocked setup.`;
   }
 
-  if (reason) {
-    return reason;
+  if (recoveryStep) {
+    return `${baseReason} Recovery: ${recoveryStep}`;
   }
 
-  return "The verification window did not provide enough evidence to confirm the step.";
+  return baseReason;
 }
 
 export function useVerificationResultState(
@@ -380,14 +514,15 @@ export function useVerificationResultState(
         payload.status,
         payload.blockReason,
         payload.reason,
+        payload.recoveryStep,
       );
 
       setState({
         attemptId: payload.attemptId,
         awaitingDecision: false,
         blockReason: payload.blockReason,
-        cardBody: buildCardBody(payload.status, payload.reason, recoveryStep),
-        cardTitle: buildCardTitle(payload.status),
+        cardBody: buildCardBody(payload, recoveryStep),
+        cardTitle: buildCardTitle(payload.status, payload.recoveryStepLabel),
         cardTone: buildCardTone(payload.status),
         confidenceBand: payload.confidenceBand,
         currentPathMode: payload.currentPathMode,
@@ -395,13 +530,25 @@ export function useVerificationResultState(
         isMock: payload.isMock,
         lastVerifiedItem: buildLastVerifiedItem(payload),
         notes: payload.notes,
-        operatorLine: buildOperatorLine(payload.status, payload.reason, recoveryStep),
+        operatorLine: buildOperatorLine(
+          payload.status,
+          payload.reason,
+          recoveryStep,
+          payload.recoveryOperatorLine,
+        ),
         progressionDirective: buildProgressionDirective(payload.status),
         reason: payload.reason,
+        recoveryAttemptCount: payload.recoveryAttemptCount,
+        recoveryAttemptLimit: payload.recoveryAttemptLimit,
         recoveryStep,
+        recoveryStepKey: payload.recoveryStepKey,
+        recoveryStepLabel: payload.recoveryStepLabel,
+        retryAllowed: payload.retryAllowed,
         status: payload.status,
         statusLabel: buildStatusLabel(payload.status),
         statusTone: buildStatusTone(payload.status),
+        substituteTaskSuggestion: payload.substituteTaskSuggestion,
+        suggestedPathMode: payload.suggestedPathMode,
         taskContext: payload.taskContext,
       });
     });

@@ -19,6 +19,8 @@ export class StreamedPcmPlayer {
   private nextStartTime = 0;
   private activeSources = new Set<AudioBufferSourceNode>();
   private state: StreamedPcmPlayerState = "idle";
+  private currentPlaybackEpoch = 0;
+  private flushedPlaybackEpoch = -1;
 
   constructor(options: StreamedPcmPlayerOptions = {}) {
     this.onStateChange = options.onStateChange;
@@ -31,7 +33,15 @@ export class StreamedPcmPlayer {
     }
   }
 
-  async enqueueChunk(data: string, mimeType: string): Promise<void> {
+  async enqueueChunk(
+    data: string,
+    mimeType: string,
+    playbackEpoch: number = 0,
+  ): Promise<boolean> {
+    if (!this.shouldAcceptChunk(playbackEpoch)) {
+      return false;
+    }
+
     await this.resume();
 
     const audioContext = this.ensureContext();
@@ -60,9 +70,21 @@ export class StreamedPcmPlayer {
         this.updateState("idle");
       }
     };
+
+    return true;
   }
 
-  interrupt(): void {
+  interrupt(playbackEpoch?: number): void {
+    const interruptedEpoch = playbackEpoch ?? this.currentPlaybackEpoch;
+    this.flushedPlaybackEpoch = Math.max(
+      this.flushedPlaybackEpoch,
+      interruptedEpoch,
+    );
+    this.currentPlaybackEpoch = Math.max(
+      this.currentPlaybackEpoch,
+      interruptedEpoch,
+    );
+
     for (const source of this.activeSources) {
       try {
         source.stop(0);
@@ -76,8 +98,14 @@ export class StreamedPcmPlayer {
     this.updateState("idle");
   }
 
-  async close(): Promise<void> {
+  reset(): void {
     this.interrupt();
+    this.currentPlaybackEpoch = 0;
+    this.flushedPlaybackEpoch = -1;
+  }
+
+  async close(): Promise<void> {
+    this.reset();
 
     if (this.gainNode !== null) {
       this.gainNode.disconnect();
@@ -106,6 +134,22 @@ export class StreamedPcmPlayer {
     }
 
     return this.gainNode;
+  }
+
+  private shouldAcceptChunk(playbackEpoch: number): boolean {
+    if (playbackEpoch <= this.flushedPlaybackEpoch) {
+      return false;
+    }
+
+    if (playbackEpoch < this.currentPlaybackEpoch) {
+      return false;
+    }
+
+    if (playbackEpoch > this.currentPlaybackEpoch) {
+      this.currentPlaybackEpoch = playbackEpoch;
+    }
+
+    return true;
   }
 
   private updateState(state: StreamedPcmPlayerState): void {

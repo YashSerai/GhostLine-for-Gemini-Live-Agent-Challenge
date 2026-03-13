@@ -61,6 +61,34 @@ const statusLabels: Record<SessionConnectionStatus, string> = {
   error: "Connection Error",
 };
 
+function getOperatorTurnLabel(turnState: string): string {
+  switch (turnState) {
+    case "speaking":
+      return "Speaking";
+    case "interrupted":
+      return "Interrupted";
+    case "listening":
+      return "Listening";
+    default:
+      return "Idle";
+  }
+}
+
+function getOperatorTurnTone(
+  turnState: string,
+  connectionStatus: SessionConnectionStatus,
+): string {
+  if (turnState === "interrupted") {
+    return "warning";
+  }
+
+  if (turnState === "speaking" || turnState === "listening") {
+    return "connected";
+  }
+
+  return connectionStatus;
+}
+
 function formatTransportTime(timestamp: string): string {
   const parsedDate = new Date(timestamp);
   if (Number.isNaN(parsedDate.valueOf())) {
@@ -160,6 +188,7 @@ function getOperatorPlaceholder(
   microphonePermission: string,
   isMicStreaming: boolean,
   isOperatorSpeaking: boolean,
+  operatorTurnState: string,
   operatorAudioChunkCount: number,
   lastError: string | null,
   cameraError: string | null,
@@ -180,6 +209,10 @@ function getOperatorPlaceholder(
 
   if (isOperatorSpeaking) {
     return "Operator audio is streaming live from Gemini Live now. The room feed remains staged locally so calibration and verification windows can capture still frames on demand.";
+  }
+
+  if (operatorTurnState === "interrupted") {
+    return "User interruption detected. Operator audio was flushed immediately. Speak now. The line is listening for a clean restatement.";
   }
 
   if (
@@ -223,6 +256,15 @@ function getOperatorPlaceholder(
     microphonePermission === "granted"
   ) {
     return "Both permissions were granted in-call. Resume the microphone stream when you are ready to continue the session.";
+  }
+
+  if (
+    connectionStatus === "connected" &&
+    isMicStreaming &&
+    operatorTurnState === "listening" &&
+    operatorAudioChunkCount > 0
+  ) {
+    return "Interruption cleared. The line is listening now. Speak and the operator will restate cleanly without replaying stale speech.";
   }
 
   if (connectionStatus === "connected" && isMicStreaming && operatorAudioChunkCount > 0) {
@@ -414,6 +456,7 @@ function App() {
   });
   const operatorAudio = useOperatorAudioPlayback({
     connectionStatus: session.status,
+    isMicStreaming: microphone.isStreaming,
     subscribeToEnvelopes: session.subscribeToEnvelopes,
   });
   const soundPlayback = useSoundPlayback({
@@ -439,6 +482,10 @@ function App() {
     connectionStatus: session.status,
     subscribeToEnvelopes: session.subscribeToEnvelopes,
   });
+  const activeTaskContext =
+    taskControls.activeTaskContext ??
+    verificationResult.taskContext ??
+    verificationFlow.taskContext;
   const soundTriggerState = useSoundCueTriggers({
     cameraReady: camera.cameraReady,
     connectionStatus: session.status,
@@ -447,8 +494,7 @@ function App() {
     playCue: soundPlayback.playCue,
     startAmbientBed: soundPlayback.startAmbientBed,
     stopAmbientBed: soundPlayback.stopAmbientBed,
-    taskAssignmentKey:
-      verificationResult.taskContext?.taskId ?? verificationFlow.taskContext?.taskId ?? null,
+    taskAssignmentKey: activeTaskContext?.taskId ?? null,
     verificationAttemptId: verificationResult.attemptId,
     verificationStatus: verificationResult.status,
   });
@@ -458,6 +504,8 @@ function App() {
     session.status === "connecting" ||
     session.status === "reconnecting";
   const connectionLabel = statusLabels[session.status];
+  const operatorTurnLabel = getOperatorTurnLabel(operatorAudio.turnState);
+  const operatorTurnTone = getOperatorTurnTone(operatorAudio.turnState, session.status);
   const permissionStage = getPermissionStage(
     session.status,
     camera.permission,
@@ -485,6 +533,7 @@ function App() {
     microphone.permission,
     microphone.isStreaming,
     operatorAudio.isSpeaking,
+    operatorAudio.turnState,
     operatorAudio.operatorAudioChunkCount,
     session.lastError,
     camera.error,
@@ -503,6 +552,7 @@ function App() {
       !taskControls.swapPending &&
       !taskControls.pausePending &&
       !taskControls.endSessionPending &&
+      !operatorAudio.isInterrupted &&
       activeIssue === null,
     allowDiagnosticPrompt: camera.cameraReady && camera.captureFrameCount > 0,
     context:
@@ -517,6 +567,7 @@ function App() {
       (verificationFlow.phase !== "captured" ? verificationFlow.operatorLine : null);
   const operatorPlaceholder =
     verificationOperatorPlaceholder ??
+    taskControls.swapOperatorLine ??
     waitingDialogue.currentLine ??
     fallbackOperatorPlaceholder;
 
@@ -530,10 +581,27 @@ function App() {
     isOperatorSpeaking: operatorAudio.isSpeaking,
     lastCapturedFrame: camera.lastCapturedFrame,
     microphonePermission: microphone.permission,
-    overrides: buildVerificationHudOverrides(
-      verificationFlow.phase,
-      verificationResult,
-    ),
+    overrides: {
+      ...buildVerificationHudOverrides(
+        verificationFlow.phase,
+        verificationResult,
+      ),
+      ...(activeTaskContext
+        ? {
+            activeTaskId: activeTaskContext.taskId ?? undefined,
+            activeTaskName: activeTaskContext.taskName ?? undefined,
+            taskRoleCategory: activeTaskContext.taskRoleCategory ?? undefined,
+            taskTier: activeTaskContext.taskTier ?? undefined,
+            pathMode: activeTaskContext.pathMode ?? undefined,
+          }
+        : {}),
+      swapCount: taskControls.swapCount,
+      ...(operatorAudio.turnState === "interrupted"
+        ? { turnStatus: { value: "Interrupted", tone: "warning" as const } }
+        : operatorAudio.turnState === "listening"
+          ? { turnStatus: { value: "Listening", tone: "live" as const } }
+          : {}),
+    },
     permissionStage,
     permissionStageLabel,
   });
@@ -548,12 +616,16 @@ function App() {
     verificationFlow.phase,
     verificationResult,
   );
+  const isRecoveryRerouteRequired =
+    verificationResult.status === "unconfirmed" &&
+    verificationResult.retryAllowed === false;
   const canReadyToVerify =
     areTaskControlsArmed &&
     camera.cameraReady &&
     microphone.isStreaming &&
     !verificationFlow.isBusy &&
     !verificationResult.awaitingDecision &&
+    !isRecoveryRerouteRequired &&
     !taskControls.readyToVerifyPending &&
     !taskControls.pausePending &&
     !taskControls.endSessionPending;
@@ -661,8 +733,8 @@ function App() {
           <span className={`status-pill ${microphone.isStreaming ? "status-pill-connected" : ""}`}>
             Mic {microphone.isStreaming ? "Streaming" : microphone.permission}
           </span>
-          <span className={`status-pill ${operatorAudio.isSpeaking ? "status-pill-connected" : ""}`}>
-            Operator {operatorAudio.isSpeaking ? "Speaking" : "Idle"}
+          <span className={`status-pill status-pill-${operatorTurnTone}`}>
+            Operator {operatorTurnLabel}
           </span>
           <span className={`status-pill ${soundPlayback.status === "ready" ? "status-pill-connected" : ""}`}>
             Sound {soundPlayback.statusLabel}
@@ -685,8 +757,8 @@ function App() {
               <p className="panel-kicker">Operator Panel</p>
               <h2>The Archivist, Containment Desk</h2>
             </div>
-            <span className={`panel-tag panel-tag-${session.status}`}>
-              {operatorAudio.isSpeaking ? "Speaking" : connectionLabel}
+            <span className={`panel-tag panel-tag-${operatorTurnTone}`}>
+              {operatorTurnLabel}
             </span>
           </div>
 
@@ -786,6 +858,16 @@ function App() {
                     Path {verificationResult.currentPathMode}
                   </span>
                 ) : null}
+                {verificationResult.recoveryAttemptCount !== null &&
+                verificationResult.recoveryAttemptLimit !== null ? (
+                  <span className="control-chip">
+                    Recovery {verificationResult.recoveryAttemptCount}/
+                    {verificationResult.recoveryAttemptLimit}
+                  </span>
+                ) : null}
+                {isRecoveryRerouteRequired ? (
+                  <span className="control-chip">Reroute Required</span>
+                ) : null}
                 {verificationResult.isMock ? (
                   <span className="control-chip">Mock Result</span>
                 ) : null}
@@ -803,7 +885,23 @@ function App() {
               {verificationResult.recoveryStep &&
               verificationResult.status === "unconfirmed" ? (
                 <p className="verification-result-detail">
-                  <strong>Recovery:</strong> {verificationResult.recoveryStep}
+                  <strong>
+                    {verificationResult.recoveryStepLabel ?? "Recovery"}:
+                  </strong>{" "}
+                  {verificationResult.recoveryStep}
+                </p>
+              ) : null}
+              {verificationResult.suggestedPathMode ? (
+                <p className="verification-result-detail">
+                  <strong>Suggested Path:</strong>{" "}
+                  {verificationResult.suggestedPathMode.replace(/_/g, " ")}
+                </p>
+              ) : null}
+              {verificationResult.substituteTaskSuggestion ? (
+                <p className="verification-result-detail">
+                  <strong>Suggested Substitute:</strong>{" "}
+                  {verificationResult.substituteTaskSuggestion.taskName} (
+                  {verificationResult.substituteTaskSuggestion.taskId})
                 </p>
               ) : null}
             </article>
@@ -1084,7 +1182,9 @@ function App() {
               className="secondary-button"
               disabled={!canReadyToVerify}
               onClick={() => {
-                taskControls.requestReadyToVerify();
+                taskControls.requestReadyToVerify({
+                  taskContext: activeTaskContext,
+                });
               }}
             >
               {taskControls.readyToVerifyPending ? "Sending Verify Request" : "Ready to Verify"}
@@ -1097,7 +1197,9 @@ function App() {
               className="secondary-button"
               disabled={!canSwapTask}
               onClick={() => {
-                taskControls.requestSwapTask();
+                taskControls.requestSwapTask({
+                  taskContext: activeTaskContext,
+                });
               }}
             >
               {taskControls.swapPending ? "Sending Swap Request" : "Can't Do This / Swap Task"}
@@ -1136,6 +1238,14 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
 
 
 

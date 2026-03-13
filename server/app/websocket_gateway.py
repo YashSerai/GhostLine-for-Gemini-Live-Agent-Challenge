@@ -10,6 +10,7 @@ from uuid import uuid4
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from .audio_bridge import AudioBridgePayloadError, SessionAudioBridge
+from .capability_recovery import CapabilityRecoveryError, SessionCapabilityRecoveryManager
 from .gemini_live import GeminiLiveError, GeminiLiveSessionManager
 from .logging_utils import log_event
 from .session_transport import (
@@ -26,7 +27,6 @@ _NO_ACK_MESSAGE_TYPES = frozenset({"audio_chunk"})
 _PLACEHOLDER_ONLY_TYPES = frozenset(
     {
         "transcript",
-        "swap_request",
         "pause",
     }
 )
@@ -76,6 +76,7 @@ async def _receive_json_message(websocket: WebSocket) -> Any:
 async def _handle_envelope(
     *,
     bridge: SessionAudioBridge,
+    capability_recovery: SessionCapabilityRecoveryManager,
     verification_flow: SessionVerificationFlow,
     message_type: str,
     payload: dict[str, Any],
@@ -102,6 +103,10 @@ async def _handle_envelope(
 
     if message_type == "verify_request":
         await verification_flow.start_verification(payload)
+        return
+
+    if message_type == "swap_request":
+        await capability_recovery.handle_swap_request(payload)
         return
 
     if message_type == "frame":
@@ -131,11 +136,16 @@ def register_websocket_gateway(app: FastAPI) -> None:
             forward_envelope=lambda message: manager.send_json(session_id, message),
             verification_engine=verification_engine,
         )
+        capability_recovery = SessionCapabilityRecoveryManager(
+            session_id=session_id,
+            forward_envelope=lambda message: manager.send_json(session_id, message),
+        )
         bridge = SessionAudioBridge(
             session_id=session_id,
             gemini_session_manager=gemini_live_session_manager,
             forward_envelope=lambda message: manager.send_json(session_id, message),
             start_verification=verification_flow.start_verification,
+            handle_swap_request=capability_recovery.handle_swap_request,
             record_user_transcript=verification_flow.record_user_transcript,
         )
 
@@ -181,6 +191,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 try:
                     await _handle_envelope(
                         bridge=bridge,
+                        capability_recovery=capability_recovery,
                         verification_flow=verification_flow,
                         message_type=envelope.message_type,
                         payload=envelope.payload,
@@ -239,6 +250,24 @@ def register_websocket_gateway(app: FastAPI) -> None:
                         detail=str(exc),
                     )
                     continue
+                except CapabilityRecoveryError as exc:
+                    await manager.send_json(
+                        session_id,
+                        build_error_envelope(
+                            code="capability_recovery_error",
+                            detail=str(exc),
+                            session_id=session_id,
+                        ),
+                    )
+                    log_event(
+                        LOGGER,
+                        logging.WARNING,
+                        "websocket_capability_recovery_rejected",
+                        session_id=session_id,
+                        message_type=envelope.message_type,
+                        detail=str(exc),
+                    )
+                    continue
 
                 if envelope.message_type in _PLACEHOLDER_ONLY_TYPES:
                     log_event(
@@ -277,5 +306,6 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 reason=disconnect_reason,
                 active_connections=manager.active_count,
             )
+
 
 
