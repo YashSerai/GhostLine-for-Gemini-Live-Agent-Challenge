@@ -9,8 +9,9 @@ from .flavor_text_state_model import FlavorTextStateModel
 from .task_helpers import InvalidTaskIdError, get_task_by_id
 
 OperatorGuidanceBeat: TypeAlias = Literal[
+    "microphone_request",
     "camera_request",
-    "calibration",
+    "room_sweep",
     "calibration_acknowledged",
     "task_assignment",
     "verification_reaction",
@@ -77,51 +78,39 @@ class NormalModeOperatorGuidanceOrchestrator:
             return (directive,) if directive is not None else ()
         return ()
 
+    def build_microphone_request_guidance(self) -> OperatorGuidanceDirective:
+        return OperatorGuidanceDirective(
+            beat="microphone_request",
+            text=(
+                "Thank you for calling Ghostline. Stay with me and follow my instructions exactly. "
+                "To hear you clearly, I need microphone access now."
+            ),
+        )
+
     def build_camera_request_guidance(self) -> OperatorGuidanceDirective:
-        selection = self._flavor_model.select_flavor_line(
-            self.session_id,
-            "camera_request",
-            preferred_category="camera_request",
-        )
-        opener = (
-            selection.text
-            if selection is not None
-            else "Ghostline, Containment Desk. Stay controlled and follow my instructions exactly."
-        )
         return OperatorGuidanceDirective(
             beat="camera_request",
             text=(
-                f"{opener} I need the room, not your face. Grant camera access now. "
-                "As soon as the room feed is visible, I will calibrate it and place the first step."
+                "Good. Since you placed this call, I am treating the room as an active containment case. "
+                "You sound unsettled, so I am going to drive this. Grant camera access now so I can see the surrounding space."
             ),
         )
 
-    def build_calibration_guidance(self) -> OperatorGuidanceDirective:
+    def build_room_sweep_guidance(self) -> OperatorGuidanceDirective:
         return OperatorGuidanceDirective(
-            beat="calibration",
+            beat="room_sweep",
             text=(
-                "Good. I have the room feed. Calibration is one clean still frame of the room so I can place the first task honestly. "
-                "Center the doorway or nearest boundary, keep the phone level, then tap Capture Calibration once."
+                "Good. Pan slowly across the room once. Show me the doorway, the nearest boundary, and any clear surface you can use. "
+                "Then keep the phone level and tap Finish Sweep plus Calibrate once so I can lock the first containment step."
             ),
         )
 
-    def build_calibration_acknowledgement(
-        self,
-        *,
-        microphone_streaming: bool,
-    ) -> OperatorGuidanceDirective:
-        if microphone_streaming:
-            text = (
-                "Calibration received. I have enough room context. I am placing the first task now."
-            )
-        else:
-            text = (
-                "Calibration received. I have enough room context. Now grant microphone access so I can keep the line live. "
-                "Once the mic is active, I will place the first task."
-            )
+    def build_calibration_acknowledgement(self) -> OperatorGuidanceDirective:
         return OperatorGuidanceDirective(
             beat="calibration_acknowledged",
-            text=text,
+            text=(
+                "That is enough room context. Calibration is locked. I am placing the first containment step now."
+            ),
         )
 
     def build_task_assignment_guidance(
@@ -136,17 +125,6 @@ class NormalModeOperatorGuidanceOrchestrator:
         task_name = _string_or_none(task_context.get("taskName"))
         if task_name is None:
             return None
-
-        opener_selection = self._flavor_model.select_flavor_line(
-            self.session_id,
-            "task_assignment",
-            preferred_category="task_introduction",
-        )
-        opener = (
-            opener_selection.text
-            if opener_selection is not None
-            else "Good. Stay with me and do exactly one step at a time."
-        )
 
         operator_description = _string_or_none(task_context.get("operatorDescription"))
         if operator_description is None:
@@ -173,7 +151,7 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="task_assignment",
             text=(
-                f"{opener} {instruction_lead}: {task_name}. Exact action: {detail} "
+                f"{instruction_lead}: {task_name}. Exact action: {detail} "
                 f"{completion_signal}"
             ),
         )
@@ -188,23 +166,21 @@ class NormalModeOperatorGuidanceOrchestrator:
         case_report = payload.get("caseReport")
         active_task_index = _int_or_none(payload.get("activeTaskIndex"))
         calibration_captured_at = _string_or_none(payload.get("calibrationCapturedAt"))
-        microphone_streaming = payload.get("microphoneStreaming") is True
+
+        if state_name == "microphone_request" and self._last_state != "microphone_request":
+            directives.append(self.build_microphone_request_guidance())
 
         if state_name == "camera_request" and self._last_state != "camera_request":
             directives.append(self.build_camera_request_guidance())
 
-        if state_name == "calibration" and self._last_state != "calibration":
-            directives.append(self.build_calibration_guidance())
+        if state_name == "room_sweep" and self._last_state != "room_sweep":
+            directives.append(self.build_room_sweep_guidance())
 
         if (
             calibration_captured_at is not None
             and calibration_captured_at != self._last_calibration_captured_at
         ):
-            directives.append(
-                self.build_calibration_acknowledgement(
-                    microphone_streaming=microphone_streaming,
-                )
-            )
+            directives.append(self.build_calibration_acknowledgement())
             self._last_calibration_captured_at = calibration_captured_at
 
         task_id = (
@@ -383,12 +359,6 @@ def _int_or_none(value: Any) -> int | None:
         return None
     if isinstance(value, int):
         return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
     return None
-
-
-__all__ = [
-    "BACKEND_AUTHORED_TRANSCRIPT_SOURCES",
-    "NormalModeOperatorGuidanceOrchestrator",
-    "OperatorGuidanceDirective",
-    "REACTIVE_FILLER_ALLOWED_STATES",
-]

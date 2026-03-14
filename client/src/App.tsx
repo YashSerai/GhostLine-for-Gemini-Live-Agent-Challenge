@@ -72,12 +72,12 @@ function getTranscriptPlaceholder(
 
 type PermissionStage =
   | "awaiting_call"
-  | "request_camera"
-  | "camera_requesting"
-  | "camera_denied"
   | "request_microphone"
   | "microphone_requesting"
   | "microphone_denied"
+  | "request_camera"
+  | "camera_requesting"
+  | "camera_denied"
   | "permissions_ready";
 
 const statusLabels: Record<SessionConnectionStatus, string> = {
@@ -110,56 +110,20 @@ function getOperatorTurnTone(
     return "warning";
   }
 
-  if (turnState === "speaking" || turnState === "listening") {
-    return "connected";
+  if (turnState === "speaking") {
+    return "live";
   }
 
-  return connectionStatus;
-}
-
-function formatTransportTime(timestamp: string): string {
-  const parsedDate = new Date(timestamp);
-  if (Number.isNaN(parsedDate.valueOf())) {
-    return timestamp;
+  if (turnState === "listening") {
+    return "ready";
   }
 
-  return parsedDate.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return connectionStatus === "connected" ? "idle" : connectionStatus;
 }
 
 function formatEnvelopeSummary(entry: TransportLogEntry): string {
-  if (entry.direction === "sent") {
-    return `Sent ${entry.envelope.type}`;
-  }
-
-  return `Received ${entry.envelope.type}`;
-}
-
-function formatDemoBargeInStatus(status: string | null): string {
-  switch (status) {
-    case "armed":
-      return "Armed";
-    case "triggered":
-      return "Triggered";
-    case "restated":
-      return "Restated";
-    default:
-      return "Standby";
-  }
-}
-
-function formatDemoNearFailureStatus(status: string | null): string {
-  switch (status) {
-    case "failed_once":
-      return "Failed Once";
-    case "recovered":
-      return "Recovered";
-    default:
-      return "Standby";
-  }
+  const directionLabel = entry.direction === "sent" ? "Sent" : "Received";
+  return `${directionLabel} ${entry.envelope.type}`;
 }
 
 function formatCaptureSummary(timestamp: string): string {
@@ -186,14 +150,6 @@ function getPermissionStage(
     return "awaiting_call";
   }
 
-  if (cameraPermission === "requesting") {
-    return "camera_requesting";
-  }
-
-  if (!cameraReady) {
-    return cameraPermission === "denied" ? "camera_denied" : "request_camera";
-  }
-
   if (microphonePermission === "requesting") {
     return "microphone_requesting";
   }
@@ -206,6 +162,14 @@ function getPermissionStage(
     return "request_microphone";
   }
 
+  if (cameraPermission === "requesting") {
+    return "camera_requesting";
+  }
+
+  if (!cameraReady) {
+    return cameraPermission === "denied" ? "camera_denied" : "request_camera";
+  }
+
   return "permissions_ready";
 }
 
@@ -213,18 +177,18 @@ function formatPermissionStage(stage: PermissionStage): string {
   switch (stage) {
     case "awaiting_call":
       return "Awaiting Call";
-    case "request_camera":
-      return "Request Camera";
-    case "camera_requesting":
-      return "Camera Prompt Open";
-    case "camera_denied":
-      return "Camera Denied";
     case "request_microphone":
       return "Request Microphone";
     case "microphone_requesting":
       return "Microphone Prompt Open";
     case "microphone_denied":
       return "Microphone Denied";
+    case "request_camera":
+      return "Request Camera";
+    case "camera_requesting":
+      return "Camera Prompt Open";
+    case "camera_denied":
+      return "Camera Denied";
     case "permissions_ready":
       return "Permissions Ready";
     default:
@@ -232,6 +196,42 @@ function formatPermissionStage(stage: PermissionStage): string {
   }
 }
 
+function formatDemoBargeInStatus(status: string | null): string {
+  switch (status) {
+    case "armed":
+      return "Armed";
+    case "triggered":
+      return "Triggered";
+    case "restated":
+      return "Restated";
+    default:
+      return "Standby";
+  }
+}
+
+function formatDemoNearFailureStatus(status: string | null): string {
+  switch (status) {
+    case "failed_once":
+      return "Failed Once";
+    case "recovered":
+      return "Recovered";
+    default:
+      return "Standby";
+  }
+}
+
+function formatTransportTime(timestamp: string): string {
+  const parsedDate = new Date(timestamp);
+  if (Number.isNaN(parsedDate.valueOf())) {
+    return timestamp;
+  }
+
+  return parsedDate.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 function buildActiveTaskInstruction(
   activeTaskContext: VerificationTaskContext | null,
 ): string | null {
@@ -314,35 +314,35 @@ function getOperatorPlaceholder(
     connectionStatus === "connecting" ||
     connectionStatus === "reconnecting"
   ) {
-    return "Containment Desk is bringing the line up now. Stay with me. I will request camera and microphone in-call once the session is stable.";
-  }
-
-  if (permissionStage === "request_camera") {
-    return "I need your camera. Grant access now. Calibration means one clean still frame of the room. Center the doorway or nearest boundary, keep the phone level, and capture one still image. After calibration, I will place the first task for you.";
-  }
-
-  if (permissionStage === "camera_requesting") {
-    return "The camera request is open now. Approve it and return to the call. I will not advance until the room feed is visible.";
-  }
-
-  if (permissionStage === "camera_denied") {
-    return "Camera access was denied. Retry it now. I need the room visible before I can stage calibration or a Ready to Verify hold.";
+    return "Containment Desk is bringing the line up now. Stay with me. I will request microphone first, then camera, then one room sweep and calibration still frame.";
   }
 
   if (permissionStage === "request_microphone") {
-    return "Good. I have the room feed. Now grant microphone access so I can hear you directly and keep the containment call live.";
+    return "Thank you for calling Ghostline. Stay with me and follow my instructions exactly. To hear you clearly, I need microphone access now.";
   }
 
   if (permissionStage === "microphone_requesting") {
-    return "The microphone request is open now. Approve it and speak when the capture bridge is live. We keep this inside the call, not in a setup screen.";
+    return "The microphone request is open now. Approve it and return to the call. Camera comes next.";
   }
 
   if (permissionStage === "microphone_denied") {
-    return "Microphone access was denied. Retry it now. The line stays active while you reopen the audio bridge.";
+    return "Microphone access was denied. Retry it now. I need to hear you before I place the camera and containment steps.";
+  }
+
+  if (permissionStage === "request_camera") {
+    return "Good. Since you placed this call, I am treating the room as an active containment case. Now grant camera access so I can see the surrounding space.";
+  }
+
+  if (permissionStage === "camera_requesting") {
+    return "The camera request is open now. Approve it and return to the call. After that, I will ask for one slow room sweep and one calibration still frame.";
+  }
+
+  if (permissionStage === "camera_denied") {
+    return "Camera access was denied. Retry it now. I need one slow room sweep and one clean calibration frame before I can place the first step.";
   }
 
   if (connectionStatus === "connected" && cameraReady && captureFrameCount === 0) {
-    return "Room feed linked. Calibration means one clean still frame of the room so I can place the first task. Center the doorway or nearest boundary, keep the phone level, capture one still frame, then hold. Once that frame is logged, I will give you the first containment step.";
+    return "Room feed linked. Pan slowly across the room once. Show the doorway, the nearest boundary, and any clear surface you can use. Then keep the phone level and tap Finish Sweep plus Calibrate once. When that still frame is logged, I will place the first containment step automatically.";
   }
 
   if (
@@ -350,7 +350,7 @@ function getOperatorPlaceholder(
     !isMicStreaming &&
     microphonePermission === "granted"
   ) {
-    return "Both permissions were granted in-call. Resume the microphone stream when you are ready to continue the session.";
+    return "Camera and microphone are both approved in-call. Resume the microphone stream when you are ready to continue the session.";
   }
 
   const activeTaskInstruction = buildActiveTaskInstruction(activeTaskContext);
@@ -376,14 +376,14 @@ function getOperatorPlaceholder(
   }
 
   if (connectionStatus === "connected" && isMicStreaming) {
-    return "Microphone stream is live. Waiting for the first operator audio response from Gemini Live while the room-feed controls stay armed for verify, swap, pause, and end.";
+    return "Microphone stream is live. The line is waiting to place or restate the next containment instruction.";
   }
 
   if (lastError) {
     return `Transport is waiting for a clean reconnect. Last transport error: ${lastError}`;
   }
 
-  return "Operator text will render here during the live call. Camera and microphone permissions remain part of the hotline exchange instead of a pre-call setup screen.";
+  return "Primary operator guidance will render here during the live call. Voice is primary, and this panel mirrors the active instruction in case you miss a spoken line.";
 }
 
 function getPermissionRequestCopy(
@@ -394,57 +394,57 @@ function getPermissionRequestCopy(
     case "awaiting_call":
       return {
         title: "Call Not Started",
-        body: "Start the hotline first. Camera and microphone access are requested only after the operator asks for them in context.",
+        body: "Start the hotline first. Microphone comes first, then camera, then one room sweep and one calibration still frame.",
         tone: "pending",
-      };
-    case "request_camera":
-      return {
-        title: "Camera Request",
-        body: "The Archivist is asking for the room feed now. Grant camera access from this panel so the call stays in character.",
-        tone: "pending",
-      };
-    case "camera_requesting":
-      return {
-        title: "Awaiting Camera Permission",
-        body: "Your browser camera prompt should be open. Approve it, then return to the hotline. The operator will wait for the room feed.",
-        tone: "pending",
-      };
-    case "camera_denied":
-      return {
-        title: "Camera Access Denied",
-        body: "Retry camera access when ready. The room view is required before calibration sampling and later verification holds.",
-        tone: "warning",
       };
     case "request_microphone":
       return {
         title: "Microphone Request",
-        body: "The room feed is linked. Grant microphone access now so the live audio bridge can open inside the call.",
+        body: "The Archivist is taking control of the call now. Grant microphone access first so the line can hear you clearly before the room sweep begins.",
         tone: "pending",
       };
     case "microphone_requesting":
       return {
         title: "Awaiting Microphone Permission",
-        body: "Your browser microphone prompt should be open. Approve it, then speak. The transport remains live while the prompt is open.",
+        body: "Your browser microphone prompt should be open. Approve it, then return to the call. Camera comes next.",
         tone: "pending",
       };
     case "microphone_denied":
       return {
         title: "Microphone Access Denied",
-        body: "Retry microphone access when ready. The operator will keep the session open and wait for the audio bridge.",
+        body: "Retry microphone access now. The hotline should hear you before it asks for the room feed.",
+        tone: "warning",
+      };
+    case "request_camera":
+      return {
+        title: "Camera Request",
+        body: "Microphone is live. Grant camera access now so the Archivist can direct a room sweep, lock calibration, and place the first containment step.",
+        tone: "pending",
+      };
+    case "camera_requesting":
+      return {
+        title: "Awaiting Camera Permission",
+        body: "Your browser camera prompt should be open. Approve it, then return to the hotline. The next beat is one slow room sweep plus one calibration still frame.",
+        tone: "pending",
+      };
+    case "camera_denied":
+      return {
+        title: "Camera Access Denied",
+        body: "Retry camera access now. The hotline cannot place the first step until the room sweep and calibration frame are complete.",
         tone: "warning",
       };
     case "permissions_ready":
       return {
         title: "Permissions Complete",
         body: isMicStreaming
-          ? "Camera and microphone were both requested and granted in-call. The session can proceed without any pre-call setup step."
-          : "Camera and microphone were both requested in-call. The microphone stream is currently idle, but permission is already secured.",
+          ? "Microphone and camera were both granted in-call. Complete the room sweep and calibration beat, then follow the assigned task exactly."
+          : "Microphone and camera are both approved in-call. Resume the microphone stream when you are ready to continue.",
         tone: "ready",
       };
     default:
       return {
         title: "Call Not Started",
-        body: "Start the hotline first. Camera and microphone access are requested only after the operator asks for them in context.",
+        body: "Start the hotline first. Microphone comes first, then camera, then one room sweep and one calibration still frame.",
         tone: "pending",
       };
   }
@@ -460,7 +460,7 @@ function getControlBarCopy(
   }
 
   if (permissionStage !== "permissions_ready") {
-    return "Task controls stay locked until camera and microphone are granted in-call. End Session remains available so the user keeps a clean exit.";
+    return "Task controls stay locked until microphone and camera are granted in-call. End Session remains available so the user keeps a clean exit.";
   }
 
   if (verificationPhase === "pending" || verificationPhase === "capturing_window") {
@@ -1325,8 +1325,8 @@ function App() {
                   }}
                 >
                   {camera.captureFrameCount > 0
-                    ? "Retake Calibration"
-                    : "Capture Calibration"}
+                    ? "Retake Sweep Calibration"
+                    : "Finish Sweep + Calibrate"}
                 </button>
               </div>
             ) : null}
@@ -1373,7 +1373,7 @@ function App() {
               </article>
             ) : (
               <article className="capture-preview-card capture-preview-card-empty">
-                Still frames remain staged locally for calibration now and for the later Ready to Verify flow.
+Pan once, then capture one clean calibration still frame. Later Ready to Verify windows still use staged frames instead of continuous video analysis.
               </article>
             )}
           </div>
@@ -1606,45 +1606,48 @@ function App() {
             <span className="control-chip">Use Demo Reset between takes</span>
           </div>
 
-          <div className="rehearsal-grid">
-            <section className="rehearsal-card">
-              <p className="meta-label">Key Checks</p>
-              <div className="rehearsal-check-list">
-                {rehearsalHarness.checks.map((check) => (
-                  <article
-                    className={`rehearsal-check rehearsal-check-${check.status}`}
-                    key={check.label}
-                  >
-                    <div className="rehearsal-check-header">
-                      <strong>{check.label}</strong>
-                      <span className="control-chip">{check.status}</span>
-                    </div>
-                    <p className="control-status-body">{check.detail}</p>
-                  </article>
-                ))}
-              </div>
-            </section>
+          <details className="rehearsal-details">
+            <summary>Open detailed rehearsal checks</summary>
+            <div className="rehearsal-grid">
+              <section className="rehearsal-card">
+                <p className="meta-label">Key Checks</p>
+                <div className="rehearsal-check-list">
+                  {rehearsalHarness.checks.map((check) => (
+                    <article
+                      className={`rehearsal-check rehearsal-check-${check.status}`}
+                      key={check.label}
+                    >
+                      <div className="rehearsal-check-header">
+                        <strong>{check.label}</strong>
+                        <span className="control-chip">{check.status}</span>
+                      </div>
+                      <p className="control-status-body">{check.detail}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
 
-            <section className="rehearsal-card">
-              <p className="meta-label">Fixed Task Path</p>
-              <div className="rehearsal-task-list">
-                {rehearsalHarness.taskProgress.map((task) => (
-                  <article
-                    className={`rehearsal-task rehearsal-task-${task.status}`}
-                    key={task.taskId}
-                  >
-                    <div className="rehearsal-task-header">
-                      <strong>
-                        {task.taskName} <span>({task.taskId})</span>
-                      </strong>
-                      <span className="control-chip">{task.status}</span>
-                    </div>
-                    <p className="control-status-body">{task.detail}</p>
-                  </article>
-                ))}
-              </div>
-            </section>
-          </div>
+              <section className="rehearsal-card">
+                <p className="meta-label">Fixed Task Path</p>
+                <div className="rehearsal-task-list">
+                  {rehearsalHarness.taskProgress.map((task) => (
+                    <article
+                      className={`rehearsal-task rehearsal-task-${task.status}`}
+                      key={task.taskId}
+                    >
+                      <div className="rehearsal-task-header">
+                        <strong>
+                          {task.taskName} <span>({task.taskId})</span>
+                        </strong>
+                        <span className="control-chip">{task.status}</span>
+                      </div>
+                      <p className="control-status-body">{task.detail}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </details>
         </section>
       ) : null}
       {sessionState.caseReport ? (

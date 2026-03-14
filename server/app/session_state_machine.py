@@ -32,7 +32,9 @@ SessionStateName = Literal[
     "init",
     "call_connected",
     "consent",
+    "microphone_request",
     "camera_request",
+    "room_sweep",
     "calibration",
     "task_assigned",
     "waiting_ready",
@@ -68,8 +70,10 @@ class SessionPersistenceStore(Protocol):
 _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "init": ("call_connected", "ended"),
     "call_connected": ("consent", "ended"),
-    "consent": ("camera_request", "ended"),
-    "camera_request": ("calibration", "paused", "ended"),
+    "consent": ("microphone_request", "ended"),
+    "microphone_request": ("camera_request", "paused", "ended"),
+    "camera_request": ("room_sweep", "paused", "ended"),
+    "room_sweep": ("camera_request", "waiting_ready", "paused", "ended"),
     "calibration": ("camera_request", "task_assigned", "paused", "ended"),
     "task_assigned": ("camera_request", "waiting_ready", "swap_pending", "paused", "ended"),
     "waiting_ready": ("camera_request", "verifying", "swap_pending", "paused", "ended"),
@@ -78,7 +82,9 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "recovery_active": ("camera_request", "waiting_ready", "swap_pending", "paused", "ended"),
     "swap_pending": ("camera_request", "task_assigned", "waiting_ready", "diagnosis_beat", "completed", "case_report", "paused", "ended"),
     "paused": (
+        "microphone_request",
         "camera_request",
+        "room_sweep",
         "calibration",
         "task_assigned",
         "waiting_ready",
@@ -99,7 +105,9 @@ _ALLOWED_VERIFY_STATES = frozenset({"waiting_ready", "recovery_active"})
 _ALLOWED_SWAP_STATES = frozenset({"task_assigned", "waiting_ready", "recovery_active", "swap_pending"})
 _ALLOWED_PAUSE_STATES = frozenset(
     {
+        "microphone_request",
         "camera_request",
+        "room_sweep",
         "calibration",
         "task_assigned",
         "waiting_ready",
@@ -188,7 +196,7 @@ class SessionStateMachine:
     async def handle_client_connect(self) -> None:
         self._transition("call_connected", "client_connect")
         self._transition("consent", "hotline_connected")
-        self._transition("camera_request", "in_call_permission_flow")
+        self._transition("microphone_request", "in_call_permission_flow")
         self._log_cloud_proof_event(
             "session_started",
             current_step=self.current_step,
@@ -212,8 +220,9 @@ class SessionStateMachine:
 
         if self.state != "paused":
             if self.camera_ready and self.state == "camera_request":
-                self._transition("calibration", "camera_ready")
+                self._transition("room_sweep", "camera_ready")
             elif not self.camera_ready and self.state in {
+                "room_sweep",
                 "calibration",
                 "task_assigned",
                 "waiting_ready",
@@ -248,9 +257,12 @@ class SessionStateMachine:
     async def handle_mic_status(self, payload: dict[str, Any]) -> None:
         self.microphone_streaming = payload.get("streaming") is True
 
+        if self.microphone_streaming and self.state == "microphone_request":
+            self._transition("camera_request", "microphone_ready")
+
         if (
             self.microphone_streaming
-            and self.state == "calibration"
+            and self.state in {"room_sweep", "calibration"}
             and self.calibration_captured_at is not None
         ):
             self._assign_next_task("mic_stream_ready")
@@ -274,7 +286,7 @@ class SessionStateMachine:
             calibration_captured_at=self.calibration_captured_at,
         )
 
-        if self.state == "calibration" and self.microphone_streaming:
+        if self.state in {"room_sweep", "calibration"} and self.microphone_streaming:
             self._assign_next_task("calibration_captured")
             self._transition("waiting_ready", "task_staged")
 

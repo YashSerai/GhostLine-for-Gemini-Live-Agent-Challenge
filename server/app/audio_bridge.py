@@ -25,11 +25,11 @@ _AUDIO_MIME_PREFIX = "audio/pcm"
 _TEMPORARY_AUDIO_INPUT_SYSTEM_INSTRUCTION = (
     "TEMPORARY PROMPT 9 STUB: You are The Archivist, Containment Desk for "
     "Ghostline, a live paranormal containment hotline. Speak in short, calm, "
-    "procedural lines with brisk pacing. Keep the interaction voice-first and "
+    "procedural lines with brisk pacing and a slightly faster-than-conversational delivery. Keep the interaction voice-first and "
     "camera-aware, one step at a time. Be honest about uncertainty, never bluff "
     "visual claims, and avoid campy horror, threats, profanity, gore, or "
     "identity-based reasoning. Do not ask for the caller's name, location, or why "
-    "they are calling unless the backend explicitly directs it. The backend owns "
+    "they are calling unless the backend explicitly directs it. Assume they are calling because they are unsettled and need immediate guidance. The backend owns "
     "the first minute of the call and the exact guidance beats. When the backend "
     "sends realtime text beginning with 'OPERATOR_DIRECTIVE:', treat the "
     "remainder as an exact operator line: speak it plainly, do not add extra "
@@ -221,13 +221,26 @@ class SessionAudioBridge:
         self._demo_barge_in_completed = False
         self._suppress_operator_output_transcripts = False
 
-    async def send_operator_guidance(self, text: str, *, source: str) -> None:
+    async def send_operator_guidance(self, text: str, *, source: str, emit_transcript: bool = False) -> None:
         normalized_text = text.strip()
         if not normalized_text:
             return
 
         session = await self._ensure_session()
         self._suppress_operator_output_transcripts = True
+        if emit_transcript:
+            await self._forward_envelope(
+                {
+                    "type": "transcript",
+                    "sessionId": self.session_id,
+                    "payload": {
+                        "speaker": "operator",
+                        "text": normalized_text,
+                        "isFinal": True,
+                        "source": source,
+                    },
+                }
+            )
         await session.send_text_input(f"OPERATOR_DIRECTIVE: {normalized_text}")
         log_event(
             LOGGER,
@@ -596,6 +609,7 @@ class SessionAudioBridge:
         await self.send_operator_guidance(
             DEMO_BARGE_IN_SCRIPT.restatement_line,
             source="demo_mode",
+            emit_transcript=True,
         )
         await self._publish_demo_barge_in_status("restated")
         log_event(
