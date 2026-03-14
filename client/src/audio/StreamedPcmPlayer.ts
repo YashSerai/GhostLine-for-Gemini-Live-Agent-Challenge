@@ -5,6 +5,7 @@ import {
   pcm16BytesToFloat32,
 } from "./pcmUtils";
 
+
 export type StreamedPcmPlayerState = "idle" | "speaking";
 
 export interface StreamedPcmPlayerOptions {

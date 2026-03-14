@@ -126,7 +126,7 @@ class GeminiLiveSession:
             raise GeminiLiveSessionError("Text input cannot be empty.")
 
         try:
-            await self._sdk_session.send_realtime_input(text=text.strip())
+            await self._sdk_session.send(input=text.strip(), end_of_turn=True)
         except Exception as exc:
             log_event(
                 LOGGER,

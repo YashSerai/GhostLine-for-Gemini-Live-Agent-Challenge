@@ -13,6 +13,7 @@ SESSION_MESSAGE_TYPES: Final[tuple[str, ...]] = (
     "calibration_status",
     "transcript",
     "frame",
+    "room_scan_frame",
     "verify_request",
     "swap_request",
     "pause",

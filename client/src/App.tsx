@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMicrophoneBridge } from "./audio/useMicrophoneBridge";
 import { useOperatorAudioPlayback } from "./audio/useOperatorAudioPlayback";
 import { useCameraPreview } from "./media/useCameraPreview";
+import { useRoomScan } from "./media/useRoomScan";
 import { useTranscriptLayer, type TranscriptEntry } from "./transcript/useTranscriptLayer";
 import { useSoundPlayback } from "./sound/useSoundPlayback";
 import { useSoundCueTriggers } from "./sound/useSoundCueTriggers";
@@ -330,7 +331,7 @@ function getOperatorPlaceholder(
   }
 
   if (permissionStage === "request_camera") {
-    return "Good. Since you placed this call, I am treating the room as an active containment case. Now grant camera access so I can see the surrounding space.";
+    return "Good. I have confirmed microphone access. Since you placed this call, I am treating the room as an active containment case. Now grant camera access so I can see the surrounding space.";
   }
 
   if (permissionStage === "camera_requesting") {
@@ -342,7 +343,7 @@ function getOperatorPlaceholder(
   }
 
   if (connectionStatus === "connected" && cameraReady && captureFrameCount === 0) {
-    return "Room feed linked. Pan slowly across the room once. Show the doorway, the nearest boundary, and any clear surface you can use. Then keep the phone level and tap Finish Sweep plus Calibrate once. When that still frame is logged, I will place the first containment step automatically.";
+    return "I have confirmed camera access. Pan slowly across the room once. Show the doorway, the nearest boundary, and any clear surface you can use. Then keep the phone level and tap Finish Sweep plus Calibrate once. When that still frame is logged, I will place the first containment step automatically.";
   }
 
   if (
@@ -418,7 +419,7 @@ function getPermissionRequestCopy(
     case "request_camera":
       return {
         title: "Camera Request",
-        body: "Microphone is live. Grant camera access now so the Archivist can direct a room sweep, lock calibration, and place the first containment step.",
+        body: "Microphone access is confirmed. Grant camera access now so the Archivist can direct a room sweep, lock calibration, and place the first containment step.",
         tone: "pending",
       };
     case "camera_requesting":
@@ -548,6 +549,41 @@ function getVerificationHudOverrides(verificationPhase: ReadyToVerifyPhase): {
   }
 }
 
+function playStartCallRing(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const AudioContextConstructor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextConstructor) {
+    return;
+  }
+
+  const context = new AudioContextConstructor();
+  const master = context.createGain();
+  master.gain.value = 0.04;
+  master.connect(context.destination);
+
+  const startAt = context.currentTime + 0.02;
+  const bursts = [0, 0.34, 0.68];
+  for (const offset of bursts) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.setValueAtTime(920, startAt + offset);
+    gain.gain.setValueAtTime(0.0001, startAt + offset);
+    gain.gain.exponentialRampToValueAtTime(0.24, startAt + offset + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.17);
+    oscillator.connect(gain);
+    gain.connect(master);
+    oscillator.start(startAt + offset);
+    oscillator.stop(startAt + offset + 0.18);
+  }
+
+  window.setTimeout(() => {
+    void context.close();
+  }, 1300);
+}
 function formatCaseReportTimestamp(timestamp: string): string {
   const parsedDate = new Date(timestamp);
   if (Number.isNaN(parsedDate.valueOf())) {
@@ -663,8 +699,57 @@ function App() {
     verificationAttemptId: verificationResult.attemptId,
     verificationStatus: verificationResult.status,
   });
+
+  // Room scan: stream camera frames at ~1fps to Gemini when camera is
+  // ready and the user hasn't yet done the first calibration capture.
+  // This is the "scan the room left to right" phase.
+  const isRoomScanActive =
+    session.status === "connected" &&
+    camera.cameraReady &&
+    microphone.isStreaming &&
+    camera.captureFrameCount === 0;
+  useRoomScan({
+    isScanning: isRoomScanActive,
+    connectionStatus: session.status,
+    videoRef: camera.videoRef,
+    canvasRef: camera.canvasRef,
+    sendMessage: session.sendMessage,
+  });
+
   const endTeardownHandledRef = useRef(false);
   const [isDemoResetting, setIsDemoResetting] = useState(false);
+  const [pendingStartCallIntro, setPendingStartCallIntro] = useState(false);
+
+  // --- Onboarding splash ---
+  const [showSplash, setShowSplash] = useState(true);
+
+  // --- Session timer ---
+  const [callStartTime, setCallStartTime] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (session.status === "connected" && callStartTime === null) {
+      setCallStartTime(Date.now());
+    }
+    if (session.status === "disconnected" || session.status === "idle") {
+      setCallStartTime(null);
+      setElapsedSeconds(0);
+    }
+  }, [session.status, callStartTime]);
+
+  useEffect(() => {
+    if (callStartTime === null) return;
+    const id = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - callStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [callStartTime]);
+
+  const formatTimer = (secs: number): string => {
+    const m = Math.floor(secs / 60).toString().padStart(2, "0");
+    const s = (secs % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
 
   useEffect(() => {
     if (sessionState.state === "paused") {
@@ -781,6 +866,7 @@ function App() {
     sessionState.state === "paused"
       ? null
       : getLatestBackendAuthoredOperatorLine(transcriptLayer.entries);
+
   const endedOperatorPlaceholder =
     sessionState.state === "ended" || sessionState.caseReport !== null
       ? "Session ended. Media activity has been stopped. Review the case report and archive reference below."
@@ -921,9 +1007,21 @@ function App() {
     camera.permission !== "requesting";
   const canRequestMicrophone =
     session.status === "connected" &&
-    camera.cameraReady &&
     !microphone.isStreaming &&
     microphone.permission !== "requesting";
+
+  useEffect(() => {
+    if (!pendingStartCallIntro || session.status !== "connected") {
+      return;
+    }
+    setPendingStartCallIntro(false);
+    void operatorAudio.preparePlayback();
+  }, [pendingStartCallIntro, session.status, microphone, operatorAudio]);
+  useEffect(() => {
+    if (session.status !== "connected" && session.status !== "connecting") {
+      setPendingStartCallIntro(false);
+    }
+  }, [session.status]);
 
   let permissionActionLabel: string | null = null;
   let permissionAction: (() => void) | null = null;
@@ -971,7 +1069,9 @@ function App() {
 
     void operatorAudio.preparePlayback();
     void soundPlayback.prepare();
+    playStartCallRing();
     transcriptLayer.resetTranscript();
+    setPendingStartCallIntro(true);
     session.connect();
   }
 
@@ -1011,6 +1111,72 @@ function App() {
     }
   }
 
+  // --- Containment score ---
+  const containmentScore = (() => {
+    const cr = sessionState.caseReport;
+    if (!cr) return null;
+    const total = cr.counts.confirmed + cr.counts.user_confirmed_only + cr.counts.unverified + cr.counts.skipped;
+    if (total === 0) return null;
+    const points = cr.counts.confirmed * 100 + cr.counts.user_confirmed_only * 60;
+    return Math.round(points / (total * 100) * 100);
+  })();
+
+  // --- Share report ---
+  async function handleShareReport() {
+    const cr = sessionState.caseReport;
+    if (!cr) return;
+    const text = [
+      `🔮 GHOSTLINE CONTAINMENT REPORT`,
+      `Case: ${cr.caseId}`,
+      `Verdict: ${cr.closingTemplate.heading}`,
+      `Classification: ${cr.incidentClassificationLabel}`,
+      containmentScore !== null ? `Containment Score: ${containmentScore}%` : "",
+      `Tasks: ${cr.counts.confirmed} confirmed, ${cr.counts.user_confirmed_only} user-confirmed, ${cr.counts.unverified} unverified, ${cr.counts.skipped} skipped`,
+      callStartTime ? `Duration: ${formatTimer(elapsedSeconds)}` : "",
+      ``,
+      `${cr.closingTemplate.closingLine}`,
+      ``,
+      `Investigated via Ghostline — Live Paranormal Containment Hotline`,
+    ].filter(Boolean).join("\n");
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Ghostline Case Report", text });
+        return;
+      } catch { /* user cancelled or unsupported */ }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Report copied to clipboard!");
+    } catch {
+      alert("Could not share report.");
+    }
+  }
+
+  // --- Splash screen ---
+  if (showSplash) {
+    return (
+      <div className="ghostline-splash" onClick={() => setShowSplash(false)}>
+        <div className="splash-content">
+          <p className="splash-eyebrow">Ghostline</p>
+          <h1 className="splash-title">Live Paranormal<br />Containment Hotline</h1>
+          <p className="splash-body">
+            A real-time voice &amp; camera experience powered by Gemini Live.
+            The Archivist guides you through a containment protocol — step by step.
+          </p>
+          <button
+            type="button"
+            className="splash-cta"
+            onClick={(e) => { e.stopPropagation(); setShowSplash(false); }}
+          >
+            Start the Hotline
+          </button>
+          <p className="splash-hint">Tap anywhere to continue</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`hotline-shell${isDemoMode ? " hotline-shell-demo-readable" : ""}${isDemoResetting ? " hotline-shell-demo-resetting" : ""}`}>
       <header className="hero-panel panel">
@@ -1038,6 +1204,11 @@ function App() {
           <span className={`status-pill ${soundPlayback.status === "ready" ? "status-pill-connected" : ""}`}>
             Sound {soundPlayback.statusLabel}
           </span>
+          {callStartTime !== null ? (
+            <span className="status-pill status-pill-connected">
+              ⏱ {formatTimer(elapsedSeconds)}
+            </span>
+          ) : null}
           {activeIssue ? (
             <span className="status-pill status-pill-error">Issue recorded</span>
           ) : null}
@@ -1699,6 +1870,24 @@ Pan once, then capture one clean calibration still frame. Later Ready to Verify 
               </span>
             </div>
           </article>
+          {containmentScore !== null ? (
+            <article className="case-report-summary containment-score-section">
+              <p className="case-report-summary-label">Containment Effectiveness</p>
+              <div className="containment-score-row">
+                <div className="containment-score-bar-track">
+                  <div
+                    className={`containment-score-bar-fill containment-score-bar-fill-${containmentScore >= 80 ? "high" : containmentScore >= 50 ? "mid" : "low"}`}
+                    style={{ width: `${containmentScore}%` }}
+                  />
+                </div>
+                <span className="containment-score-value">{containmentScore}%</span>
+              </div>
+              {callStartTime !== null ? (
+                <p className="containment-score-timer">Duration: {formatTimer(elapsedSeconds)}</p>
+              ) : null}
+            </article>
+          ) : null}
+
           <article className={`case-report-closing case-report-closing-${sessionState.caseReport.closingTemplate.tone}`}>
             <p className="case-report-summary-label">Closing Line</p>
             <p className="case-report-summary-copy">
@@ -1719,6 +1908,14 @@ Pan once, then capture one clean calibration still frame. Later Ready to Verify 
               ))}
             </div>
           </article>
+
+          <button
+            type="button"
+            className="secondary-button share-report-button"
+            onClick={() => { void handleShareReport(); }}
+          >
+            📋 Share Containment Report
+          </button>
 
           <div className="case-report-task-list" role="list">
             {sessionState.caseReport.tasks.map((task) => (
@@ -1753,6 +1950,8 @@ Pan once, then capture one clean calibration still frame. Later Ready to Verify 
 }
 
 export default App;
+
+
 
 
 

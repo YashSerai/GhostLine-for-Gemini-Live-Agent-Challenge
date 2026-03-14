@@ -729,7 +729,7 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px;
-  align-items: center;
+  align-items: start;
 }
 
 .control-bar-copy {
@@ -1371,10 +1371,27 @@ h1 {
 
 .camera-control-deck {
   margin-top: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
   border-radius: 20px;
   border-color: rgba(127, 169, 202, 0.22);
   box-shadow: none;
   background: rgba(9, 14, 19, 0.86);
+}
+.camera-control-deck .control-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  justify-content: stretch;
+  width: 100%;
+}
+.camera-control-deck .control-actions > * {
+  width: 100%;
+  min-width: 0;
+}
+.camera-control-deck .control-chip {
+  min-width: 0;
+  text-align: center;
 }
 
 .rehearsal-details {
@@ -1394,4 +1411,481 @@ h1 {
 
 .rehearsal-details[open] .rehearsal-grid {
   margin-top: 14px;
+}
+
+/* ================================================================ */
+/* ONBOARDING SPLASH SCREEN                                         */
+/* ================================================================ */
+
+.ghostline-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(
+    ellipse at 50% 40%,
+    rgba(214, 126, 74, 0.08) 0%,
+    rgba(5, 7, 10, 0.97) 65%,
+    #05070a 100%
+  );
+  cursor: pointer;
+  animation: splash-fade-in 0.5s ease-out;
+}
+
+@keyframes splash-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.splash-content {
+  max-width: 520px;
+  padding: 48px 36px;
+  text-align: center;
+  border: 1px solid rgba(214, 126, 74, 0.22);
+  border-radius: 28px;
+  background: rgba(10, 15, 20, 0.88);
+  box-shadow:
+    0 40px 80px rgba(0, 0, 0, 0.5),
+    0 0 120px rgba(214, 126, 74, 0.06);
+  backdrop-filter: blur(24px);
+}
+
+.splash-eyebrow {
+  margin: 0 0 12px;
+  color: var(--accent);
+  font-size: 0.82rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.splash-title {
+  margin: 0 0 18px;
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+  text-shadow: 0 2px 16px rgba(214, 126, 74, 0.2);
+}
+
+.splash-body {
+  margin: 0 0 28px;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.splash-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0 32px;
+  border: 1px solid rgba(214, 126, 74, 0.46);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(214, 126, 74, 0.32), rgba(137, 61, 39, 0.48));
+  color: #fffaf6;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 16px 36px rgba(82, 31, 17, 0.35);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.splash-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 44px rgba(82, 31, 17, 0.45);
+}
+
+.splash-hint {
+  margin: 16px 0 0;
+  font-size: 0.78rem;
+  color: rgba(167, 180, 194, 0.5);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ================================================================ */
+/* CONTAINMENT SCORE BAR                                            */
+/* ================================================================ */
+
+.containment-score-section {
+  display: grid;
+  gap: 12px;
+}
+
+.containment-score-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.containment-score-bar-track {
+  flex: 1;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(127, 169, 202, 0.12);
+  overflow: hidden;
+}
+
+.containment-score-bar-fill {
+  height: 100%;
+  border-radius: 7px;
+  transition: width 600ms ease-out;
+}
+
+.containment-score-bar-fill-high {
+  background: linear-gradient(90deg, #4fa87a, #85c29c);
+  box-shadow: 0 0 12px rgba(133, 194, 156, 0.3);
+}
+
+.containment-score-bar-fill-mid {
+  background: linear-gradient(90deg, #c9a24e, #d8b46d);
+  box-shadow: 0 0 12px rgba(216, 180, 109, 0.3);
+}
+
+.containment-score-bar-fill-low {
+  background: linear-gradient(90deg, #b5524a, #da8273);
+  box-shadow: 0 0 12px rgba(218, 130, 115, 0.3);
+}
+
+.containment-score-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-family: Consolas, "Courier New", monospace;
+  color: var(--text);
+  min-width: 48px;
+  text-align: right;
+}
+
+.containment-score-timer {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+}
+
+/* ================================================================ */
+/* SHARE REPORT BUTTON                                              */
+/* ================================================================ */
+
+.share-report-button {
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+
+/* ================================================================ */
+/* MOBILE PHONE OPTIMIZATIONS (< 540px)                              */
+/* Designed for recording the hackathon demo on a phone.             */
+/* Camera feed first, big touch targets, hidden debug panels.        */
+/* ================================================================ */
+
+
+@media (max-width: 540px) {
+  /* --- Shell & Spacing --- */
+  .hotline-shell {
+    width: 100%;
+    padding: 10px;
+    gap: 10px;
+  }
+
+  /* --- Hero: compact single-column --- */
+  .hero-panel {
+    padding: 14px 16px;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    border-radius: 16px;
+  }
+  .hero-panel h1 {
+    font-size: 1.6rem;
+    max-width: none;
+  }
+  .hero-copy {
+    display: none; /* hide wall-of-text on phone */
+  }
+  .hero-status {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+  .status-pill,
+  .panel-tag,
+  .control-chip {
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 0.68rem;
+    border-radius: 8px;
+  }
+
+  /* --- Stage Grid: camera-first, single column --- */
+  .stage-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "camera"
+      "operator"
+      "subtitles"
+      "hud";
+    gap: 10px;
+  }
+
+  /* --- Panel sizing --- */
+  .panel {
+    border-radius: 16px;
+  }
+  .operator-panel,
+  .camera-panel,
+  .subtitles-panel,
+  .hud-panel,
+  .control-bar {
+    padding: 12px;
+  }
+
+  /* --- Camera: prominent, full-width --- */
+  .camera-frame {
+    aspect-ratio: 16 / 9;
+    border-radius: 14px;
+  }
+  .panel-heading {
+    margin-bottom: 10px;
+  }
+  .panel-heading h2 {
+    font-size: 1.05rem;
+  }
+  .panel-kicker {
+    margin: 0 0 4px;
+    font-size: 0.68rem;
+  }
+
+  /* --- Room scan indicator --- */
+  .camera-frame-live::after {
+    display: block;
+    content: "";
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #da8273;
+    box-shadow: 0 0 8px rgba(218, 130, 115, 0.6);
+    animation: room-scan-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes room-scan-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+
+  /* --- Operator: compact script, hide debug meta --- */
+  .operator-script {
+    padding: 12px;
+    border-radius: 14px;
+  }
+  .operator-script blockquote {
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+
+  /* Hide verbose developer meta on phone */
+  .operator-meta {
+    display: none;
+  }
+  .transport-monitor {
+    display: none;
+  }
+
+  /* Permission flow: compact */
+  .permission-request-card {
+    padding: 12px;
+    border-radius: 14px;
+  }
+  .permission-request-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .permission-request-copy {
+    font-size: 0.88rem;
+  }
+
+  /* --- Camera capture controls compact on mobile --- */
+  .camera-meta {
+    gap: 6px;
+  }
+  .camera-action-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .camera-action-row .secondary-button {
+    width: 100%;
+    min-height: 48px;
+    font-size: 0.88rem;
+  }
+
+  /* --- Buttons: large touch targets, full-width --- */
+  .start-call-button,
+  .secondary-button,
+  .danger-button {
+    min-height: 52px;
+    font-size: 0.9rem;
+    border-radius: 12px;
+  }
+  .start-call-button {
+    width: 100%;
+    font-size: 1rem;
+    min-height: 56px;
+  }
+
+  /* --- Control bar: stacked --- */
+  .control-bar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    border-radius: 16px;
+  }
+  .control-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .control-actions > * {
+    width: 100%;
+    min-width: 0;
+  }
+  .control-copy {
+    font-size: 0.84rem;
+  }
+
+  /* --- Subtitles: compact --- */
+  .subtitle-list {
+    max-height: 200px;
+    gap: 8px;
+  }
+  .subtitle-row {
+    padding: 10px 12px;
+    border-radius: 12px;
+    gap: 8px;
+  }
+  .subtitle-body {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  /* --- HUD: collapsed on mobile, show only summaries --- */
+  .hud-panel {
+    position: static;
+  }
+  .hud-sections {
+    display: none; /* hide detailed HUD sections on phone */
+  }
+  .hud-summary {
+    gap: 6px;
+    margin-bottom: 0;
+  }
+  .hud-summary-chip {
+    padding: 8px 10px;
+  }
+  .hud-summary-label {
+    font-size: 0.68rem;
+  }
+  .hud-summary-value {
+    font-size: 0.84rem;
+  }
+
+  /* --- Verification result: compact --- */
+  .verification-result-card {
+    margin-top: 10px;
+  }
+  .verification-result-meta {
+    gap: 6px;
+  }
+  .verification-result-detail {
+    font-size: 0.88rem;
+  }
+
+  /* --- Verification window card --- */
+  .verification-window-card {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  /* --- Case report: compact --- */
+  .case-report-panel {
+    padding: 12px;
+    gap: 10px;
+  }
+  .case-report-meta {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .case-report-meta article {
+    padding: 10px 12px;
+  }
+
+  /* --- Capture preview: hide on mobile for cleaner look --- */
+  .capture-preview-card {
+    display: none;
+  }
+
+  /* --- Rehearsal: collapsible on mobile --- */
+  .rehearsal-panel {
+    padding: 12px;
+    gap: 10px;
+  }
+  .rehearsal-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  /* --- Demo reset button: full-width on mobile --- */
+  .demo-reset-button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  /* --- Issue banner: compact --- */
+  .issue-banner {
+    padding: 10px 12px;
+    margin-top: 10px;
+    border-radius: 12px;
+  }
+  .issue-banner p {
+    font-size: 0.88rem;
+  }
+
+  /* --- Camera control deck: phone-optimized --- */
+  .camera-control-deck {
+    margin-top: 10px;
+    gap: 10px;
+    border-radius: 14px;
+  }
+  .camera-control-deck .control-actions {
+    grid-template-columns: 1fr;
+  }
+
+  /* --- Scrollbar: thin on mobile --- */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(127, 169, 202, 0.3);
+    border-radius: 2px;
+  }
+}
+
+/* Small phones (< 380px) — extreme compact */
+@media (max-width: 380px) {
+  .hero-panel h1 {
+    font-size: 1.3rem;
+  }
+  .eyebrow {
+    font-size: 0.64rem;
+  }
+  .control-actions {
+    grid-template-columns: 1fr;
+  }
+  .case-report-meta {
+    grid-template-columns: 1fr;
+  }
 }

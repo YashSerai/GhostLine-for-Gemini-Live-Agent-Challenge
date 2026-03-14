@@ -192,6 +192,9 @@ class SessionStateMachine:
         self.verification_history: list[dict[str, Any]] = []
         self.transition_history: list[dict[str, Any]] = []
         self.ended_reason: str | None = None
+        # AI-observed room features from Gemini vision room scan.
+        # When populated, these override keyword-based affordance inference.
+        self.ai_observed_affordances: ObservedAffordances | None = None
 
     async def handle_client_connect(self) -> None:
         self._transition("call_connected", "client_connect")
@@ -683,17 +686,46 @@ class SessionStateMachine:
         self.plan = build_protocol_plan(profile)
         self.current_path_mode = profile.environment.path_mode
 
+    def set_ai_observed_affordances(self, affordances: ObservedAffordances) -> None:
+        """Store Gemini-derived room observations for protocol planning.
+
+        When set, the protocol planner will prefer these AI observations over
+        keyword-matching on the user transcript, leading to task selections
+        that match what Gemini actually saw in the room.
+        """
+        self.ai_observed_affordances = affordances
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "ai_observed_affordances_set",
+            session_id=self.session_id,
+            threshold=affordances.threshold_available,
+            flat_surface=affordances.flat_surface_available,
+            paper=affordances.paper_available,
+            light_controllable=affordances.light_controllable,
+            reflective_surface=affordances.reflective_surface_available,
+            water_source=affordances.water_source_nearby,
+        )
+
     def _build_live_capability_profile(self):
+        # Prefer AI-observed affordances from Gemini room scan when available.
+        if self.ai_observed_affordances is not None:
+            observed_affordances = self.ai_observed_affordances
+        else:
+            transcript_lines = self._recent_user_transcript_lines()
+            lowered_lines = tuple(line.lower() for line in transcript_lines)
+            observed_affordances = ObservedAffordances(
+                threshold_available=_infer_positive_affordance(lowered_lines, ("door", "doorway", "threshold", "hallway", "entry")),
+                flat_surface_available=_infer_positive_affordance(lowered_lines, ("table", "desk", "counter", "shelf", "flat surface")),
+                paper_available=_infer_positive_affordance(lowered_lines, ("paper", "notebook", "page", "receipt", "index card")),
+                light_controllable=_infer_positive_affordance(lowered_lines, ("lamp", "light switch", "overhead light", "flashlight")),
+                reflective_surface_available=_infer_positive_affordance(lowered_lines, ("mirror", "glass", "window", "screen")),
+                water_source_nearby=_infer_positive_affordance(lowered_lines, ("sink", "faucet", "water", "bowl", "cup")),
+            )
+
+        # User constraints always come from transcript (user says "I don't have X")
         transcript_lines = self._recent_user_transcript_lines()
         lowered_lines = tuple(line.lower() for line in transcript_lines)
-        observed_affordances = ObservedAffordances(
-            threshold_available=_infer_positive_affordance(lowered_lines, ("door", "doorway", "threshold", "hallway", "entry")),
-            flat_surface_available=_infer_positive_affordance(lowered_lines, ("table", "desk", "counter", "shelf", "flat surface")),
-            paper_available=_infer_positive_affordance(lowered_lines, ("paper", "notebook", "page", "receipt", "index card")),
-            light_controllable=_infer_positive_affordance(lowered_lines, ("lamp", "light switch", "overhead light", "flashlight")),
-            reflective_surface_available=_infer_positive_affordance(lowered_lines, ("mirror", "glass", "window", "screen")),
-            water_source_nearby=_infer_positive_affordance(lowered_lines, ("sink", "faucet", "water", "bowl", "cup")),
-        )
         user_constraints = UserDeclaredConstraints(
             cannot_use_threshold=_contains_any(lowered_lines, ("no door", "no threshold", "cannot use the door", "can't use the door")),
             no_flat_surface=_contains_any(lowered_lines, ("no table", "no counter", "no desk", "no flat surface")),

@@ -10,6 +10,13 @@ from uuid import uuid4
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from .audio_bridge import AudioBridgePayloadError, SessionAudioBridge
+from .gemini_verification import (
+    GeminiVisionVerificationEngine,
+    ROOM_SCAN_STRUCTURED_PROMPT,
+    parse_room_scan_affordances,
+    AI_RECOVERY_DIRECTIVE_TEMPLATE,
+)
+from .capability_profile import ObservedAffordances
 from .capability_recovery import CapabilityRecoveryError, SessionCapabilityRecoveryManager
 from .demo_dialogue import (
     DEMO_CALIBRATION_LINE,
@@ -17,7 +24,12 @@ from .demo_dialogue import (
     DEMO_DIAGNOSIS_INTERPRETATION_LINE,
     DEMO_DIAGNOSIS_QUESTION_LINE,
     DEMO_FINAL_CLOSURE_LINE,
+    DEMO_OPENER_LINE,
+    DEMO_MIC_CONFIRMED_LINE,
+    DEMO_ROOM_SCAN_LINE,
+    DEMO_ROOM_SCAN_ASSESSMENT_LINE,
     build_demo_task_assignment_line,
+    get_demo_flavor_for_task,
 )
 from .flavor_text_state_model import FlavorTextStateModel
 from .gemini_live import GeminiLiveError, GeminiLiveSessionManager
@@ -40,7 +52,7 @@ from .verification_engine import VerificationEngine
 from .verification_flow import SessionVerificationFlow, VerificationFlowError
 
 LOGGER = logging.getLogger("ghostline.backend.websocket")
-_NO_ACK_MESSAGE_TYPES = frozenset({"audio_chunk"})
+_NO_ACK_MESSAGE_TYPES = frozenset({"audio_chunk", "room_scan_frame"})
 _PLACEHOLDER_ONLY_TYPES = frozenset({"transcript"})
 _GUIDANCE_TRANSCRIPT_SOURCES = BACKEND_AUTHORED_TRANSCRIPT_SOURCES
 
@@ -203,6 +215,12 @@ def register_websocket_gateway(app: FastAPI) -> None:
         bridge: SessionAudioBridge | None = None
         default_demo_mode = app.state.settings.demo_mode.enabled_by_default
         demo_last_announced_task_id: str | None = None
+        demo_last_announced_state: str | None = None
+        demo_opener_sent = False
+        demo_mic_confirmed_sent = False
+        demo_camera_request_sent = False
+        demo_room_scan_sent = False
+        demo_calibration_sent = False
         demo_diagnosis_question_sent = False
         demo_diagnosis_interpretation_sent = False
         demo_pending_task_guidance: str | None = None
@@ -254,6 +272,39 @@ def register_websocket_gateway(app: FastAPI) -> None:
                     guidance_text,
                     source=guidance_source,
                 )
+
+            # Watch for ROOM_FEATURES markers in operator transcripts from
+            # Gemini's room scan — parse them and feed into the state machine
+            # so the protocol planner uses AI-observed room features.
+            msg_payload_for_scan = message.get("payload")
+            if (
+                message.get("type") == "transcript"
+                and isinstance(msg_payload_for_scan, dict)
+                and msg_payload_for_scan.get("speaker") == "operator"
+                and not state_machine.demo_mode_enabled
+                and state_machine.ai_observed_affordances is None
+            ):
+                operator_text = msg_payload_for_scan.get("text", "")
+                if isinstance(operator_text, str) and "ROOM_FEATURES" in operator_text:
+                    parsed = parse_room_scan_affordances(operator_text)
+                    if parsed is not None:
+                        ai_affordances = ObservedAffordances(
+                            threshold_available=parsed.get("threshold", False),
+                            flat_surface_available=parsed.get("flat_surface", False),
+                            paper_available=parsed.get("paper", False),
+                            light_controllable=parsed.get("light_controllable", False),
+                            reflective_surface_available=parsed.get("reflective_surface", False),
+                            water_source_nearby=parsed.get("water_source", False),
+                        )
+                        state_machine.set_ai_observed_affordances(ai_affordances)
+                        log_event(
+                            LOGGER,
+                            logging.INFO,
+                            "room_scan_affordances_parsed",
+                            session_id=session_id,
+                            affordances=parsed,
+                        )
+
             await handle_demo_dialogue_hooks(message)
             await handle_normal_guidance_hooks(message)
             if changed:
@@ -278,10 +329,25 @@ def register_websocket_gateway(app: FastAPI) -> None:
             if changed:
                 await state_machine.emit_snapshot()
 
+        # Create per-session Gemini Vision verification engine.
+        # This replaces the global RealVerificationEngine so that
+        # Gemini actually analyses captured frames during verification.
+        gemini_vision_engine = GeminiVisionVerificationEngine(
+            session_id=session_id,
+        )
+        # Use the vision engine as primary; fall back to the global
+        # engine only when mock-verification mode is active.
+        active_verification_engine: VerificationEngine | None = (
+            verification_engine
+            if verification_engine is not None
+            and getattr(verification_engine, "is_mock", False)
+            else gemini_vision_engine
+        )
+
         verification_flow = SessionVerificationFlow(
             session_id=session_id,
             forward_envelope=forward_component_envelope,
-            verification_engine=verification_engine,
+            verification_engine=active_verification_engine,
             demo_mode_enabled=default_demo_mode,
         )
         capability_recovery = SessionCapabilityRecoveryManager(
@@ -291,6 +357,12 @@ def register_websocket_gateway(app: FastAPI) -> None:
 
         async def handle_demo_dialogue_hooks(message: dict[str, Any]) -> None:
             nonlocal demo_last_announced_task_id
+            nonlocal demo_last_announced_state
+            nonlocal demo_opener_sent
+            nonlocal demo_mic_confirmed_sent
+            nonlocal demo_camera_request_sent
+            nonlocal demo_room_scan_sent
+            nonlocal demo_calibration_sent
             nonlocal demo_diagnosis_question_sent
             nonlocal demo_diagnosis_interpretation_sent
             nonlocal demo_pending_task_guidance
@@ -328,7 +400,52 @@ def register_websocket_gateway(app: FastAPI) -> None:
             active_task_index = payload.get("activeTaskIndex")
             task_context = payload.get("currentTaskContext")
             task_id = task_context.get("taskId") if isinstance(task_context, dict) else None
+            calibration_captured_at = payload.get("calibrationCapturedAt")
 
+            # --- Onboarding dialogue: opener, mic confirm, camera, room scan, calibration ---
+            if (
+                state_name == "microphone_request"
+                and not demo_opener_sent
+            ):
+                demo_opener_sent = True
+                await emit_demo_guidance(DEMO_OPENER_LINE)
+
+            if (
+                state_name == "camera_request"
+                and demo_last_announced_state != "camera_request"
+                and not demo_camera_request_sent
+            ):
+                # Combine mic-confirmed + camera-request into one text so
+                # Gemini speaks them as a single turn without interrupting.
+                combined_parts: list[str] = []
+                if not demo_mic_confirmed_sent:
+                    demo_mic_confirmed_sent = True
+                    combined_parts.append(DEMO_MIC_CONFIRMED_LINE)
+                combined_parts.append(DEMO_CAMERA_REQUEST_LINE)
+                demo_camera_request_sent = True
+                await emit_demo_guidance(" ".join(combined_parts))
+
+            if (
+                state_name == "room_sweep"
+                and not demo_room_scan_sent
+            ):
+                demo_room_scan_sent = True
+                await emit_demo_guidance(DEMO_ROOM_SCAN_LINE)
+
+            if (
+                isinstance(calibration_captured_at, str)
+                and calibration_captured_at
+                and not demo_calibration_sent
+            ):
+                demo_calibration_sent = True
+                # Combine assessment + calibration into one turn.
+                await emit_demo_guidance(
+                    f"{DEMO_ROOM_SCAN_ASSESSMENT_LINE} {DEMO_CALIBRATION_LINE}"
+                )
+
+            demo_last_announced_state = state_name
+
+            # --- Task assignment dialogue ---
             if (
                 isinstance(task_id, str)
                 and task_id.strip()
@@ -357,10 +474,71 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 demo_final_closure_sent = True
                 await emit_demo_guidance(DEMO_FINAL_CLOSURE_LINE)
 
+            # Inter-task flavor text: after a successful verification, emit
+            # a short containment lore observation before the next task.
+            if message_type == "verification_result":
+                v_status = payload.get("status")
+                v_task_ctx = payload.get("taskContext")
+                if (
+                    v_status == "confirmed"
+                    and isinstance(v_task_ctx, dict)
+                    and isinstance(v_task_ctx.get("taskId"), str)
+                ):
+                    flavor = get_demo_flavor_for_task(v_task_ctx["taskId"])
+                    if flavor is not None:
+                        await emit_demo_guidance(flavor)
+
         async def handle_normal_guidance_hooks(message: dict[str, Any]) -> None:
             if state_machine.demo_mode_enabled:
                 return
 
+            # In normal mode, use CONTEXT_DIRECTIVE to let Gemini generate
+            # contextual operator dialogue instead of authored templates.
+            msg_type = message.get("type")
+            msg_payload = message.get("payload")
+            if msg_type == "verification_result" and isinstance(msg_payload, dict):
+                v_status = msg_payload.get("status", "unknown")
+                v_task_ctx = msg_payload.get("taskContext")
+                task_name = (
+                    v_task_ctx.get("taskName", "the current task")
+                    if isinstance(v_task_ctx, dict)
+                    else "the current task"
+                )
+                context_text = (
+                    f"The caller just finished attempting '{task_name}'. "
+                    f"Verification result: {v_status}. "
+                )
+                if v_status == "confirmed":
+                    context_text += (
+                        "Acknowledge this success briefly, weave in a short "
+                        "containment lore observation, then transition to "
+                        "what the caller needs to do next."
+                    )
+                elif v_status == "unconfirmed":
+                    task_id = (
+                        v_task_ctx.get("taskId", "unknown")
+                        if isinstance(v_task_ctx, dict)
+                        else "unknown"
+                    )
+                    block_reason = msg_payload.get("blockReason", "unclear")
+                    context_text += (
+                        AI_RECOVERY_DIRECTIVE_TEMPLATE.format(
+                            task_name=task_name,
+                            task_id=task_id,
+                            status=v_status,
+                            block_reason=block_reason,
+                        )
+                    )
+                else:
+                    context_text += (
+                        "The step was self-reported. Acknowledge it and "
+                        "move on to the next containment instruction."
+                    )
+                if bridge is not None:
+                    await bridge.send_context_directive(context_text)
+                return
+
+            # Fall back to authored templates for non-verification envelopes.
             for directive in normal_mode_guidance.consume_envelope(message):
                 await emit_operator_guidance(directive)
 
@@ -415,6 +593,12 @@ def register_websocket_gateway(app: FastAPI) -> None:
             update_demo_barge_in=update_demo_barge_in,
         )
 
+        # Attach the Gemini Live session to the vision engine so it can
+        # send frames for analysis during verification.  The session is
+        # lazy — it is created when the bridge opens its first stream —
+        # so we attach via property reference on the bridge.
+        gemini_vision_engine.attach_session(bridge.gemini_session)
+
         log_event(
             LOGGER,
             logging.INFO,
@@ -465,6 +649,25 @@ def register_websocket_gateway(app: FastAPI) -> None:
                         verification_flow.set_demo_mode_enabled(state_machine.demo_mode_enabled)
                         await bridge.configure_demo_mode(enabled=state_machine.demo_mode_enabled)
                         await state_machine.handle_client_connect()
+                        # Replay the session state through the full guidance
+                        # pipeline.  handle_client_connect() already sent the
+                        # snapshot to the client via emit_snapshot(), but that
+                        # goes through manager.send_json directly — it never
+                        # passes through forward_component_envelope, so the
+                        # guidance hooks (demo and normal) never fire and the
+                        # opener text never reaches Gemini for speech.
+                        # By forwarding the snapshot here, the hooks process
+                        # the "microphone_request" state and emit the operator
+                        # guidance directive, which in turn calls
+                        # bridge.send_operator_guidance() to make Gemini speak.
+                        connect_snapshot = state_machine.to_payload()
+                        await forward_component_envelope(
+                            {
+                                "type": "session_state",
+                                "sessionId": session_id,
+                                "payload": connect_snapshot,
+                            }
+                        )
                         log_event(
                             LOGGER,
                             logging.INFO,
@@ -493,11 +696,39 @@ def register_websocket_gateway(app: FastAPI) -> None:
                             await bridge.stop_stream(
                                 reason=reason if isinstance(reason, str) and reason else "client_requested"
                             )
+                        # Replay so guidance hooks emit mic-confirmed /
+                        # camera-request lines to Gemini.
+                        mic_snapshot = state_machine.to_payload()
+                        await forward_component_envelope(
+                            {
+                                "type": "session_state",
+                                "sessionId": session_id,
+                                "payload": mic_snapshot,
+                            }
+                        )
                     elif envelope.message_type == "audio_chunk":
                         await bridge.forward_audio_chunk(envelope.payload)
                     elif envelope.message_type == "camera_status":
                         verification_flow.update_camera_state(envelope.payload)
                         await state_machine.handle_camera_status(envelope.payload)
+                        # Replay so guidance hooks emit room-sweep /
+                        # camera-request lines to Gemini.
+                        cam_snapshot = state_machine.to_payload()
+                        await forward_component_envelope(
+                            {
+                                "type": "session_state",
+                                "sessionId": session_id,
+                                "payload": cam_snapshot,
+                            }
+                        )
+                        # When the state enters room_sweep, prime the room
+                        # scan context ONCE so Gemini knows how to interpret
+                        # incoming camera frames without per-frame prompts.
+                        if (
+                            cam_snapshot.get("state") == "room_sweep"
+                            and bridge is not None
+                        ):
+                            await bridge.prime_room_scan_context()
                     elif envelope.message_type == "verify_request":
                         prepared_payload = state_machine.prepare_verification_request(envelope.payload)
                         previous_state = state_machine.begin_verification_request()
@@ -518,6 +749,40 @@ def register_websocket_gateway(app: FastAPI) -> None:
                         await state_machine.emit_snapshot()
                     elif envelope.message_type == "frame":
                         await verification_flow.ingest_frame(envelope.payload)
+                        # Store frame data in the vision engine so it
+                        # can send the best frame to Gemini when evaluate() is called.
+                        frame_data = envelope.payload.get("data")
+                        attempt_id = envelope.payload.get("attemptId")
+                        if isinstance(frame_data, str):
+                            if isinstance(attempt_id, str):
+                                existing = gemini_vision_engine._frame_data_store.get(attempt_id, [])
+                                existing.append(frame_data)
+                                gemini_vision_engine.store_frame_data(attempt_id, existing)
+                            # Also re-attach the session in case it was
+                            # lazily created after bridge init.
+                            if bridge is not None and gemini_vision_engine._gemini_session is None:
+                                gemini_vision_engine.attach_session(bridge.gemini_session)
+                    elif envelope.message_type == "room_scan_frame":
+                        # Room scan frame for Gemini vision during calibration
+                        frame_data = envelope.payload.get("data")
+                        if isinstance(frame_data, str) and bridge is not None:
+                            await bridge.send_room_scan_frame(frame_data)
+                            # On the first room scan frame, also send the
+                            # structured prompt so Gemini includes room
+                            # feature markers in its response.
+                            if (
+                                not state_machine.demo_mode_enabled
+                                and state_machine.ai_observed_affordances is None
+                            ):
+                                await bridge.send_context_directive(
+                                    ROOM_SCAN_STRUCTURED_PROMPT
+                                )
+                            log_event(
+                                LOGGER,
+                                logging.INFO,
+                                "websocket_room_scan_frame_forwarded",
+                                session_id=session_id,
+                            )
                     elif envelope.message_type == "pause":
                         await state_machine.handle_pause_request(envelope.payload)
                         if envelope.payload.get("paused") is True:

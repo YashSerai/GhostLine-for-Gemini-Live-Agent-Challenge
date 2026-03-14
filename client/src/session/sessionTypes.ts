@@ -6,6 +6,7 @@ export const CLIENT_SESSION_MESSAGE_TYPES = [
   "calibration_status",
   "transcript",
   "frame",
+  "room_scan_frame",
   "verify_request",
   "swap_request",
   "pause",

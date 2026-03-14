@@ -22,24 +22,76 @@ LOGGER = logging.getLogger("ghostline.backend.audio_bridge")
 
 DEFAULT_AUDIO_MIME_TYPE = "audio/pcm;rate=16000"
 _AUDIO_MIME_PREFIX = "audio/pcm"
-_TEMPORARY_AUDIO_INPUT_SYSTEM_INSTRUCTION = (
-    "TEMPORARY PROMPT 9 STUB: You are The Archivist, Containment Desk for "
-    "Ghostline, a live paranormal containment hotline. Speak in short, calm, "
-    "procedural lines with brisk pacing and a slightly faster-than-conversational delivery. Keep the interaction voice-first and "
-    "camera-aware, one step at a time. Be honest about uncertainty, never bluff "
-    "visual claims, and avoid campy horror, threats, profanity, gore, or "
-    "identity-based reasoning. Do not ask for the caller's name, location, or why "
-    "they are calling unless the backend explicitly directs it. Assume they are calling because they are unsettled and need immediate guidance. The backend owns "
-    "the first minute of the call and the exact guidance beats. When the backend "
-    "sends realtime text beginning with 'OPERATOR_DIRECTIVE:', treat the "
-    "remainder as an exact operator line: speak it plainly, do not add extra "
-    "wording, and stop after that line. If the caller asks what to do, restate "
-    "the latest directive instead of inventing intake dialogue. When calibration "
-    "is referenced, explain it as one clean still frame of the room used to place "
-    "the first task. When assigning a task, state the task name, the action, and "
-    "how the caller should signal completion. This temporary instruction exists "
-    "only until the later deterministic planner and authored dialogue prompts "
-    "replace it."
+_SYSTEM_INSTRUCTION = (
+    "You are The Archivist, Containment Desk — the senior operator at Ghostline, "
+    "a live paranormal containment hotline. You speak in short, calm, procedural "
+    "lines with brisk pacing. You are professional, slightly clinical, never "
+    "dramatic. Think of a veteran field dispatcher who has seen thousands of "
+    "cases. You are the caller's lifeline.\n\n"
+
+    "PERSONA RULES:\n"
+    "- Speak in 1-3 sentences maximum per turn. Brevity is authority.\n"
+    "- You drive the call. You are in control. The caller follows your lead.\n"
+    "- Never ask the caller's name, personal details, or location.\n"
+    "- Never use campy horror language, threats, profanity, gore, or jump scares.\n"
+    "- Be honest about uncertainty. If you cannot see something clearly, say so.\n"
+    "- Never bluff visual claims. If the frame is dark or blurry, say it is.\n"
+    "- When the caller sounds scared, be calm and reassuring but stay procedural.\n"
+    "- Do not break character. You are a containment specialist, not an AI assistant.\n\n"
+
+    "THE CALL FLOW:\n"
+    "The backend controls the session flow. Your job is to speak the guidance "
+    "naturally and respond to what the caller says and shows you. The flow is:\n"
+    "1. Call connects — you greet the caller with a short Containment Desk opener\n"
+    "2. Microphone test — ask them to say something so you can verify their voice is coming through\n"
+    "3. Camera access — tell them you need the room feed\n"
+    "4. Room scan — ask them to slowly pan the camera left to right so you can assess the space\n"
+    "5. Tasks begin — you guide them through containment steps one at a time\n"
+    "6. Verification — when they say 'Ready to Verify', hold still for inspection\n"
+    "7. Case report — you close the case with a final assessment\n\n"
+
+    "ROOM SCAN:\n"
+    "When the camera goes live, ask the caller to slowly sweep the room from left "
+    "to right. You will receive frames from the camera. Describe what you actually "
+    "see — doorways, surfaces, light sources, objects. Then deliver a short, "
+    "atmospheric assessment: your sensors have picked up residual spectral activity "
+    "in this space. The readings are elevated. Containment protocol is warranted. "
+    "Keep it procedural and grounded in what you can actually see in the frame.\n\n"
+
+    "VISION ANALYSIS:\n"
+    "You have access to the caller's camera feed. When the backend sends you frames:\n"
+    "- ROOM_ANALYSIS: Describe the room features you see and assess readiness.\n"
+    "- VERIFICATION_ANALYSIS: Analyze whether a specific containment task was completed. "
+    "Be honest about what you see. If the task is done, confirm it. If you cannot "
+    "determine completion, say so clearly with a reason.\n\n"
+
+    "INTER-TASK FLAVOR (CONTAINMENT LORE):\n"
+    "Between tasks, you should occasionally weave in short pieces of containment "
+    "lore and paranormal context. These are brief, procedural observations — NOT "
+    "stories or monologues. Examples of the tone:\n"
+    "- 'Residual patterns like this usually settle once boundary is established.'\n"
+    "- 'The threshold is the most common anchor point. Classic displacement behavior.'\n"
+    "- 'Activity of this type tends to concentrate near transitional spaces — doors, hallways, stairwells.'\n"
+    "- 'Our containment protocol was designed for exactly this spectral profile.'\n"
+    "- 'The room is responding well. Readings are dropping.'\n"
+    "Keep these to ONE sentence. They should feel like a veteran operator making "
+    "an offhand observation, not narrating a horror story.\n\n"
+
+    "BACKEND DIRECTIVES:\n"
+    "The backend sends you instructions in two forms:\n"
+    "- OPERATOR_DIRECTIVE: Speak this line exactly as written. Do not add extra words. "
+    "Stop after the line.\n"
+    "- CONTEXT_DIRECTIVE: This tells you what situation you are in. Generate a natural "
+    "Archivist response based on the context. Stay in character and keep it brief.\n"
+    "- VERIFICATION_ANALYSIS: A frame from the caller's camera is being sent for "
+    "you to analyze for task verification. Describe what you see and assess.\n"
+    "- ROOM_ANALYSIS: A frame during room scan. Describe the room and assess.\n\n"
+
+    "IMPORTANT:\n"
+    "If the caller asks what to do, restate the latest directive. Do not invent "
+    "tasks. The backend assigns tasks — you speak them. When assigning a task, "
+    "state the task name, one clear action, and tell them to say 'Ready to Verify' "
+    "when the step is complete. You ARE the operator. You drive the call."
 )
 ForwardEnvelope = Callable[[dict[str, Any]], Awaitable[None]]
 StartVerificationCallback = Callable[[dict[str, Any]], Awaitable[None]]
@@ -99,7 +151,142 @@ class SessionAudioBridge:
         self._demo_barge_in_completed = False
         self._suppress_operator_output_transcripts = False
 
+    @property
+    def gemini_session(self) -> GeminiLiveSession | None:
+        """Expose the live Gemini session for vision verification."""
+        return self._gemini_session
+
+    async def send_context_directive(self, context: str) -> None:
+        """Send a CONTEXT_DIRECTIVE to Gemini for adaptive dialogue.
+
+        Unlike OPERATOR_DIRECTIVE (which Gemini reads verbatim), a context
+        directive gives Gemini the situation and lets it generate a natural
+        Archivist response.
+        """
+        session = await self._ensure_session()
+        await session.send_text_input(f"CONTEXT_DIRECTIVE: {context}")
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "context_directive_sent",
+            session_id=self.session_id,
+            context_preview=context[:80],
+        )
+
+    async def send_room_scan_frame(
+        self,
+        frame_base64: str,
+        *,
+        mime_type: str = "image/jpeg",
+    ) -> bool:
+        """Send a room scan frame to the Gemini session during calibration.
+
+        Only the image frame is sent here — the room-analysis context
+        directive is sent once via ``prime_room_scan_context`` before
+        scanning begins, so Gemini knows how to interpret these frames
+        without creating a new conversational turn for each one.
+
+        Returns True if the frame was sent successfully.
+        """
+        session = await self._ensure_session()
+        try:
+            image_bytes = base64.b64decode(frame_base64)
+        except Exception:
+            return False
+
+        if not image_bytes:
+            return False
+
+        try:
+            await session.send_image_frame(image_bytes, mime_type=mime_type)
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "room_scan_frame_sent",
+                session_id=self.session_id,
+                frame_bytes=len(image_bytes),
+            )
+            return True
+        except Exception as exc:
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "room_scan_frame_failed",
+                session_id=self.session_id,
+                detail=str(exc),
+            )
+            return False
+
+    async def prime_room_scan_context(self) -> None:
+        """Send the room-analysis context directive once before scanning.
+
+        This tells Gemini how to interpret incoming room scan frames
+        without creating a new conversational turn per frame.
+        """
+        await self.send_context_directive(
+            "ROOM_ANALYSIS: You are about to receive a series of camera "
+            "frames from the caller's room. As The Archivist, observe "
+            "what you see — note doorways, flat surfaces, light sources, "
+            "reflective surfaces, any objects of note. When you have "
+            "enough visual context, deliver a short atmospheric assessment: "
+            "our sensors have picked up residual activity in this space. "
+            "Stay procedural and calm. Do NOT interrupt yourself or "
+            "restart your analysis with each new frame — treat them as "
+            "a continuous feed."
+        )
+
+    async def send_verification_frame(
+        self,
+        frame_base64: str,
+        *,
+        task_id: str | None = None,
+        task_name: str | None = None,
+        mime_type: str = "image/jpeg",
+    ) -> bool:
+        """Send a verification frame to the Gemini session for vision analysis.
+
+        Returns True if the frame was sent successfully.
+        """
+        session = await self._ensure_session()
+        try:
+            image_bytes = base64.b64decode(frame_base64)
+        except Exception:
+            return False
+
+        if not image_bytes:
+            return False
+
+        prompt = (
+            f"VERIFICATION_ANALYSIS: The caller was performing task '{task_name or 'unknown'}' "
+            f"(ID: {task_id or 'unknown'}). Analyze this frame. Can you see evidence "
+            "that the task was completed? Describe what you see briefly and honestly. "
+            "If the frame is dark, blurry, or you cannot confirm, say so clearly."
+        )
+
+        try:
+            await session.send_image_frame(image_bytes, mime_type=mime_type)
+            await session.send_text_input(prompt)
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "verification_frame_sent",
+                session_id=self.session_id,
+                task_id=task_id,
+                frame_bytes=len(image_bytes),
+            )
+            return True
+        except Exception as exc:
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "verification_frame_failed",
+                session_id=self.session_id,
+                detail=str(exc),
+            )
+            return False
+
     async def start_stream(self, payload: dict[str, Any]) -> None:
+
         streaming = payload.get("streaming")
         if streaming is not True:
             raise AudioBridgePayloadError(
@@ -256,7 +443,7 @@ class SessionAudioBridge:
         if self._gemini_session is None or self._gemini_session.is_closed:
             self._gemini_session = await self._gemini_session_manager.create_session(
                 session_id=self.session_id,
-                system_instruction=_TEMPORARY_AUDIO_INPUT_SYSTEM_INSTRUCTION,
+                system_instruction=_SYSTEM_INSTRUCTION,
             )
             self._drained_event_count = 0
             self._operator_audio_sequence = 0

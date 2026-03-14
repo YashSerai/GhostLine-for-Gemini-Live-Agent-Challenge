@@ -1,9 +1,10 @@
 # Ghostline
 
-Ghostline is a live paranormal containment hotline built for the Gemini Live Agent Challenge.
+Ghostline is a live paranormal containment hotline built for the **Gemini Live Agent Challenge**.
 
-The experience is voice-first, camera-aware, interruptible, and cloud-hosted. A caller speaks with **The Archivist, Containment Desk**, who requests camera access in-call, guides the room through a short containment protocol, verifies progress during staged **Ready to Verify** moments, handles interruption and recovery honestly, and ends the session with a structured case report.
+The experience is voice-first, camera-aware, interruptible, and cloud-hosted. A caller speaks with **The Archivist, Containment Desk**, who requests camera access in-call, scans the room with Gemini Vision to identify available objects, guides the caller through an AI-selected containment protocol, verifies progress using Gemini's visual analysis, provides AI-reasoned recovery when steps fail, and ends the session with a scored case report.
 
+![Architecture Diagram](docs/ARCHITECTURE_DIAGRAM.png)
 `HauntLens` appears in some UI and historical prompt text because it was the earlier working name. Ghostline is the primary product identity.
 
 ## Why This Is A Live Agents Submission
@@ -22,13 +23,21 @@ This is not a chatbot skin or a fake call simulation. The call path, interruptio
 ## Feature Summary
 
 - Live hotline call flow with **The Archivist, Containment Desk**
+- **Onboarding splash screen** with "Start the Hotline" CTA
 - In-call camera and mic permission flow
+- **Gemini Vision room scan** — Gemini sees the caller's room and narrates observations
+- **AI-driven task selection** — room scan observations determine which containment tasks are assigned
 - Gemini Live audio input and output bridged through the FastAPI backend
 - Always-on subtitles for user and operator transcript lines
 - Grounding HUD with task, path, verification, recovery, and turn-state visibility
-- Curated deterministic task system with verification and swap controls
+- **Gemini Vision verification** — captured frames analyzed by AI during "Ready to Verify" moments
+- **AI-reasoned recovery** — when verification fails, Gemini provides specific correction advice
+- **Adaptive dialogue** — Gemini generates contextual operator lines based on verification results
 - Honest verification results: `confirmed`, `unconfirmed`, `user_confirmed_only`
 - Deterministic recovery ladders for verification failure and capability failure
+- **Containment score** — calculated from verification outcomes, displayed as a gradient progress bar
+- **Session timer** — live MM:SS timer visible during the call
+- **Share report** — one-tap sharing via Web Share API or clipboard
 - Structured case report artifact with alternate ending templates
 - Demo mode with fixed path, fixed beats, and rehearsal harness
 - Firestore session persistence and structured cloud-proof logging support
@@ -46,15 +55,18 @@ This is not a chatbot skin or a fake call simulation. The call path, interruptio
 - Python + FastAPI
 - WebSocket gateway and authoritative session state machine
 - Gemini Live session manager on Vertex AI
-- Deterministic planner, verification engine, recovery logic, flavor/diagnosis libraries, case report generation
+- Gemini Vision engine for room scan analysis and verification frame analysis
+- AI-driven CapabilityProfile from room scan observations
+- AI-reasoned recovery directives on verification failure
+- Protocol planner, verification engine, recovery logic, flavor/diagnosis libraries, case report generation
 - Firestore persistence and structured logging
 
 ### Cloud
 
 - Cloud Run for backend hosting
-- Firestore for session persistence
+- Firestore for session persistence and timing metadata
 - Cloud Logging for proof-grade operational logs
-- Vertex AI / Gemini Live for realtime multimodal interaction
+- Vertex AI / Gemini Live (`gemini-live-2.5-flash-native-audio`) for realtime multimodal interaction
 
 ## Repo Layout
 
@@ -69,97 +81,76 @@ This is not a chatbot skin or a fake call simulation. The call path, interruptio
 
 These documents govern the build and should be treated as canonical:
 
-- [docs/PRODUCT_CONTEXT.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\PRODUCT_CONTEXT.md)
-- [docs/DEMO_MODE.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\DEMO_MODE.md)
-- [docs/BUILD_GUIDE.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\BUILD_GUIDE.md)
+- [docs/PRODUCT_CONTEXT.md](docs\PRODUCT_CONTEXT.md)
+- [docs/DEMO_MODE.md](docs\DEMO_MODE.md)
+- [docs/BUILD_GUIDE.md](docs\BUILD_GUIDE.md)
 
-## Local Setup
+## Quick Start
 
-### Prerequisites
+> Requires **Python 3.11+**, **Node.js 18+**, and a Google Cloud project with **Vertex AI** enabled.
 
-- Node.js with `npm`
-- Standard **CPython 3.11+** for the backend
-- Google Cloud project with Vertex AI enabled
-- Application Default Credentials or a service account JSON path
+### 1. Clone & Configure
 
-Do **not** use MSYS Python for the backend in this repo. The Google GenAI and FastAPI dependency stack expects standard CPython wheels.
-
-### Environment Variables
-
-Copy `.env.example` to `.env` and fill in the required values.
-
-Important variables:
-
-- `APP_NAME`
-- `APP_ENV`
-- `LOG_LEVEL`
-- `VITE_SESSION_WS_URL`
-- `GOOGLE_CLOUD_PROJECT`
-- `GOOGLE_CLOUD_LOCATION`
-- `VERTEX_AI_MODEL`
-- `GOOGLE_APPLICATION_CREDENTIALS`
-- `GEMINI_LIVE_INPUT_TRANSCRIPTION`
-- `GEMINI_LIVE_OUTPUT_TRANSCRIPTION`
-- `MOCK_VERIFICATION_ENABLED`
-- `DEMO_MODE_DEFAULT`
-- `FIRESTORE_DATABASE`
-- `FIRESTORE_SESSIONS_COLLECTION`
-
-Reference:
-- [.env.example](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\.env.example)
-
-Credential note:
-- keep the credential JSON outside the repo when possible
-- store only its path in `.env`
-- on Cloud Run, prefer a runtime service account instead of credential files
-
-## Running The Server
-
-From the repo root:
-
-```powershell
-cd server
-& "C:\Users\yashs\AppData\Local\Programs\Python\Python311\python.exe" -m venv .venv
-& '.\.venv\Scripts\python.exe' -m pip install --upgrade pip
-& '.\.venv\Scripts\python.exe' -m pip install -r requirements.txt
-& '.\.venv\Scripts\python.exe' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```bash
+git clone https://github.com/YashSerai/GhostLine-for-Gemini-Live-Agent-Challenge.git
+cd GhostLine-for-Gemini-Live-Agent-Challenge
+cp .env.example .env
+# Edit .env with your Google Cloud project ID, credentials path, etc.
 ```
 
-If `.venv` already exists:
+### 2. Start the Server
 
-```powershell
+```bash
 cd server
-& '.\.venv\Scripts\python.exe' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python -m venv .venv
+
+# Activate the virtual environment:
+# Linux/macOS:
+source .venv/bin/activate
+# Windows:
+# .\.venv\Scripts\activate
+
+pip install --upgrade pip
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Useful endpoints:
+### 3. Start the Client
 
-- `GET /healthz`
-- `GET /readyz`
-- `GET /ops/proof/active-session`
-- `ws://127.0.0.1:8000/ws/session`
-
-## Running The Client
-
-From the repo root:
-
-```powershell
+```bash
 cd client
 npm install
 npm run dev
 ```
 
-If `npm` is not on PATH on this machine:
+### 4. Open the App
 
-```powershell
-cd client
-& 'C:\nvm4w\nodejs\npm.cmd' install
-& 'C:\nvm4w\nodejs\npm.cmd' run dev
-```
+- **Normal mode**: [http://127.0.0.1:5173](http://127.0.0.1:5173)
+- **Demo mode**: [http://127.0.0.1:5173/?demo=1](http://127.0.0.1:5173/?demo=1)
+- **Rehearsal**: [http://127.0.0.1:5173/?demo=1&rehearsal=1](http://127.0.0.1:5173/?demo=1&rehearsal=1)
 
-Default local URL:
+## Environment Variables
 
-- `http://127.0.0.1:5173`
+Copy `.env.example` to `.env` and fill in the required values.
+
+Key variables:
+
+| Variable | Description |
+|----------|-------------|
+| `GOOGLE_CLOUD_PROJECT` | Your GCP project ID |
+| `GOOGLE_CLOUD_LOCATION` | Region (e.g., `us-central1`) |
+| `VERTEX_AI_MODEL` | `gemini-live-2.5-flash-native-audio` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON |
+| `VITE_SESSION_WS_URL` | WebSocket URL (default: `ws://127.0.0.1:8000/ws/session`) |
+| `FIRESTORE_DATABASE` | Firestore database ID |
+| `DEMO_MODE_DEFAULT` | `true` for demo mode by default |
+
+## Useful Endpoints
+
+- `GET /healthz` — liveness check
+- `GET /readyz` — readiness check
+- `GET /ops/proof/active-session` — cloud proof: shows active session ID
+- `ws://127.0.0.1:8000/ws/session` — WebSocket session transport
 
 ## Demo Replay
 
@@ -183,10 +174,10 @@ The rehearsal harness shows the fixed demo path and whether the scripted barge-i
 
 Supporting demo docs:
 
-- [docs/DEMO_PROCEDURE.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\DEMO_PROCEDURE.md) for setup and rehearsal
-- [docs/DEMO_SCRIPT.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\DEMO_SCRIPT.md) for the timed recording script and shot plan
-- [docs/DEVPOST_SUBMISSION.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\DEVPOST_SUBMISSION.md) for Devpost-ready submission copy
-- [docs/PUBLIC_BUILD_POST.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\PUBLIC_BUILD_POST.md) for the public build post draft
+- [docs/DEMO_PROCEDURE.md](docs\DEMO_PROCEDURE.md) for setup and rehearsal
+- [docs/DEMO_SCRIPT.md](docs\DEMO_SCRIPT.md) for the timed recording script and shot plan
+- [docs/DEVPOST_SUBMISSION.md](docs\DEVPOST_SUBMISSION.md) for Devpost-ready submission copy
+- [docs/PUBLIC_BUILD_POST.md](docs\PUBLIC_BUILD_POST.md) for the public build post draft
 
 ## Deployment Overview
 
@@ -201,8 +192,8 @@ The backend is prepared for Cloud Run deployment with:
 
 Deployment docs:
 
-- [docs/CLOUD_RUN_DEPLOYMENT.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_RUN_DEPLOYMENT.md)
-- [docs/AUTOMATED_DEPLOY.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\AUTOMATED_DEPLOY.md)
+- [docs/CLOUD_RUN_DEPLOYMENT.md](docs\CLOUD_RUN_DEPLOYMENT.md)
+- [docs/AUTOMATED_DEPLOY.md](docs\AUTOMATED_DEPLOY.md)
 
 The deployed backend is intended to run with:
 
@@ -223,7 +214,7 @@ Use:
 
 Recording checklist:
 
-- [docs/CLOUD_PROOF_CHECKLIST.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md)
+- [docs/CLOUD_PROOF_CHECKLIST.md](docs\CLOUD_PROOF_CHECKLIST.md)
 
 ## Privacy And Safety Notes
 
@@ -248,30 +239,27 @@ They are not required, but they help with:
 
 ## Additional Docs
 
-- [server/README.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\README.md)
-- [docs/CLOUD_RUN_DEPLOYMENT.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_RUN_DEPLOYMENT.md)
-- [docs/AUTOMATED_DEPLOY.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\AUTOMATED_DEPLOY.md)
-- [docs/CLOUD_PROOF_CHECKLIST.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md)
-- [docs/DEMO_PROCEDURE.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\DEMO_PROCEDURE.md)
-- [docs/DEMO_SCRIPT.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\DEMO_SCRIPT.md)
-- [docs/DEVPOST_SUBMISSION.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\DEVPOST_SUBMISSION.md)
-- [docs/PUBLIC_BUILD_POST.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\PUBLIC_BUILD_POST.md)
+- [server/README.md](server\README.md)
+- [docs/CLOUD_RUN_DEPLOYMENT.md](docs\CLOUD_RUN_DEPLOYMENT.md)
+- [docs/AUTOMATED_DEPLOY.md](docs\AUTOMATED_DEPLOY.md)
+- [docs/CLOUD_PROOF_CHECKLIST.md](docs\CLOUD_PROOF_CHECKLIST.md)
+- [docs/DEMO_PROCEDURE.md](docs\DEMO_PROCEDURE.md)
+- [docs/DEMO_SCRIPT.md](docs\DEMO_SCRIPT.md)
+- [docs/DEVPOST_SUBMISSION.md](docs\DEVPOST_SUBMISSION.md)
+- [docs/PUBLIC_BUILD_POST.md](docs\PUBLIC_BUILD_POST.md)
 
 ## Status
 
-This repository now includes the core Ghostline lifecycle end to end:
+This repository includes the full Ghostline lifecycle:
 
-- live call transport
+- Onboarding splash screen
+- Live call transport with session timer
 - Gemini Live audio bridge
-- staged verification
-- deterministic planner and state machine
-- interruption and recovery
-- case report generation
-- demo mode and rehearsal support
-- cloud deployment and proof instrumentation
-
-
-
-
-
-
+- Gemini Vision room scan with AI-driven task selection
+- Gemini Vision verification with AI-reasoned recovery
+- Adaptive dialogue via context directives
+- Deterministic planner, state machine, and recovery ladders
+- Containment score and share report
+- Case report generation
+- Demo mode and rehearsal support
+- Cloud deployment and proof instrumentation

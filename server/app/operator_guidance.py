@@ -91,7 +91,7 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="camera_request",
             text=(
-                "Good. Since you placed this call, I am treating the room as an active containment case. "
+                "Good. I have confirmed microphone access. Since you placed this call, I am treating the room as an active containment case. "
                 "You sound unsettled, so I am going to drive this. Grant camera access now so I can see the surrounding space."
             ),
         )
@@ -100,7 +100,7 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="room_sweep",
             text=(
-                "Good. Pan slowly across the room once. Show me the doorway, the nearest boundary, and any clear surface you can use. "
+                "Good. I have confirmed camera access. Pan slowly across the room once. Show me the doorway, the nearest boundary, and any clear surface you can use. "
                 "Then keep the phone level and tap Finish Sweep plus Calibrate once so I can lock the first containment step."
             ),
         )

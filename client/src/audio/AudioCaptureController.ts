@@ -6,6 +6,9 @@ import {
   buildPcmMimeType,
 } from "./pcmUtils";
 
+import { getSharedAudioContext } from "./sharedAudioContext";
+
+
 const PCM_CAPTURE_WORKLET_URL = "/audio-worklets/pcmCaptureProcessor.js";
 
 interface CaptureSamplesMessage {
@@ -60,8 +63,10 @@ export class AudioCaptureController {
       };
     }
 
-    const audioContext = new AudioContext({ latencyHint: "interactive" });
-    await audioContext.resume();
+    const audioContext = getSharedAudioContext();
+    if (audioContext.state !== "running") {
+      await audioContext.resume();
+    }
 
     this.audioContext = audioContext;
     this.sourceNode = audioContext.createMediaStreamSource(this.stream);
@@ -136,7 +141,6 @@ export class AudioCaptureController {
     }
 
     if (this.audioContext !== null) {
-      await this.audioContext.close();
       this.audioContext = null;
     }
   }

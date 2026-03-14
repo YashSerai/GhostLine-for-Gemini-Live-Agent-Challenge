@@ -2,8 +2,9 @@ flowchart LR
     caller["Caller / Room"]
 
     subgraph client["Frontend Hotline UI (React + Vite + TypeScript)"]
-        ui["Ghostline hotline shell\nOperator panel\nGrounding HUD\nTranscript layer\nTask controls\nCase report view"]
-        media["Camera + mic capture\nStaged frame sampler\nOperator audio playback\nAmbient sound layer"]
+        splash["Onboarding splash screen"]
+        ui["Ghostline hotline shell\nOperator panel\nGrounding HUD\nTranscript layer\nTask controls\nCase report + containment score\nSession timer (MM:SS)\nShare report button"]
+        media["Camera + mic capture\nStaged frame sampler\nRoom scan streamer (~1 fps)\nOperator audio playback\nAmbient sound layer"]
         wsClient["Client WebSocket session bridge"]
         demo["Demo mode + rehearsal harness"]
     end
@@ -11,50 +12,58 @@ flowchart LR
     subgraph cloudrun["Cloud Run Service"]
         subgraph backend["FastAPI Backend"]
             gateway["WebSocket gateway\n/healthz /readyz\n/ops/proof/active-session"]
-            bridge["Gemini Live audio bridge\nPCM input/output\nBarge-in flush"]
-            state["Authoritative session state machine"]
-            planner["Deterministic planner\nTask library\nRecovery ladders\nFlavor + diagnosis state"]
+            bridge["Gemini Live audio bridge\nPCM input/output\nBarge-in flush\nContext directives"]
+            state["Authoritative session state machine\nAI-observed affordances"]
+            planner["Protocol planner\nTask library\nAI-driven CapabilityProfile\nRecovery ladders\nFlavor + diagnosis state"]
+            vision["Gemini Vision engine\nRoom scan analysis\nVerification frame analysis\nROOM_FEATURES parser\nAI recovery directives"]
             verifier["Ready-to-Verify flow\nTask-aware verifier\nCase report generator"]
         end
     end
 
     subgraph google["Google Cloud Services"]
-        vertex["Vertex AI / Gemini Live\nRealtime voice + transcription"]
-        firestore["Firestore\nSession snapshots\nCase report persistence"]
+        vertex["Vertex AI / Gemini Live\ngemini-live-2.5-flash-native-audio\nRealtime voice + vision + transcription"]
+        firestore["Firestore\nSession snapshots\nCase report persistence\nTiming metadata"]
         logs["Cloud Logging\nStructured proof events"]
     end
 
     caller -->|"voice, room, camera framing"| media
+    splash --> ui
     media --> ui
     demo --> ui
     ui --> wsClient
     media --> wsClient
-    wsClient <-->|"session envelopes\naudio chunks\nframes\ntranscripts\nstate snapshots"| gateway
+    wsClient <-->|"session envelopes\naudio chunks\nframes + room scan frames\ntranscripts\nstate snapshots"| gateway
 
     gateway --> bridge
     gateway --> state
+    gateway --> vision
     state --> planner
     state --> verifier
     planner --> state
     verifier --> state
     bridge --> state
+    vision --> state
+    vision --> bridge
 
-    bridge <-->|"live audio + transcripts"| vertex
-    state -->|"session snapshots\nproof fields\ncase report"| firestore
+    bridge <-->|"live audio + transcripts\ncontext directives\nroom scan frames"| vertex
+    vision -->|"verification frames\nroom scan structured prompt"| vertex
+    state -->|"session snapshots\nproof fields\ncase report\ntiming"| firestore
     gateway -->|"session events"| logs
     bridge -->|"Gemini lifecycle\ninterruption events"| logs
     state -->|"task, verification, recovery, report"| logs
+    vision -->|"vision analysis events\naffordance parsing"| logs
 
     state --> gateway
     verifier --> gateway
     bridge --> gateway
+    vision --> gateway
 
     classDef ui fill:#101920,stroke:#6db3ff,color:#eef6ff,stroke-width:1.5px;
     classDef backend fill:#18161f,stroke:#f0a35b,color:#fff3e8,stroke-width:1.5px;
     classDef cloud fill:#142017,stroke:#7edc9a,color:#effff4,stroke-width:1.5px;
     classDef actor fill:#25140f,stroke:#ff9a6b,color:#fff1e8,stroke-width:1.5px;
 
-    class ui,media,wsClient,demo ui;
-    class gateway,bridge,state,planner,verifier backend;
+    class splash,ui,media,wsClient,demo ui;
+    class gateway,bridge,state,planner,vision,verifier backend;
     class vertex,firestore,logs cloud;
     class caller actor;
