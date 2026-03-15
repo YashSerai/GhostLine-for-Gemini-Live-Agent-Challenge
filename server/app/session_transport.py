@@ -14,6 +14,7 @@ SESSION_MESSAGE_TYPES: Final[tuple[str, ...]] = (
     "transcript",
     "frame",
     "room_scan_frame",
+    "task_vision_frame",
     "verify_request",
     "swap_request",
     "pause",

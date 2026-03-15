@@ -3,21 +3,26 @@ export type SoundAssetId =
   | "light_tension_stinger"
   | "warning_escalation_cue"
   | "verification_success_cue"
-  | "containment_result_cue";
+  | "containment_result_cue"
+  | "spectral_shriek"
+  | "door_creak";
 
 export type SoundAssetCategory =
   | "ambient_bed"
   | "tension_stinger"
   | "warning_cue"
   | "verification_success_cue"
-  | "containment_result_cue";
+  | "containment_result_cue"
+  | "paranormal_event";
 
 export type SoundSemanticEvent =
   | "ambient_bed"
   | "light_tension"
   | "warning_escalation"
   | "verification_success"
-  | "containment_result";
+  | "containment_result"
+  | "spectral_shriek"
+  | "door_creak";
 
 export interface SoundManifestEntry {
   assetId: SoundAssetId;
@@ -81,6 +86,26 @@ export const SOUND_ASSET_MANIFEST: Record<SoundAssetId, SoundManifestEntry> = {
     preload: "auto",
     volume: 0.23,
   },
+  spectral_shriek: {
+    assetId: "spectral_shriek",
+    category: "paranormal_event",
+    description: "Sudden eerie shriek — plays during escalation / failed verification.",
+    duckable: false,
+    loop: false,
+    path: "/audio/spectral-shriek.wav",
+    preload: "auto",
+    volume: 0.28,
+  },
+  door_creak: {
+    assetId: "door_creak",
+    category: "paranormal_event",
+    description: "Slow creaky door opening — plays on first task assignment.",
+    duckable: false,
+    loop: false,
+    path: "/audio/door-creak.wav",
+    preload: "auto",
+    volume: 0.22,
+  },
 } as const;
 
 export const SOUND_EVENT_MANIFEST: Record<SoundSemanticEvent, SoundAssetId> = {
@@ -89,6 +114,8 @@ export const SOUND_EVENT_MANIFEST: Record<SoundSemanticEvent, SoundAssetId> = {
   warning_escalation: "warning_escalation_cue",
   verification_success: "verification_success_cue",
   containment_result: "containment_result_cue",
+  spectral_shriek: "spectral_shriek",
+  door_creak: "door_creak",
 } as const;
 
 export const SOUND_ASSET_IDS = Object.keys(

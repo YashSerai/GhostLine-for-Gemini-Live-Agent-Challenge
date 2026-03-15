@@ -7,6 +7,7 @@ export const CLIENT_SESSION_MESSAGE_TYPES = [
   "transcript",
   "frame",
   "room_scan_frame",
+  "task_vision_frame",
   "verify_request",
   "swap_request",
   "pause",

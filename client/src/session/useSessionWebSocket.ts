@@ -38,11 +38,22 @@ function getDefaultManagerOptions(): WebSocketSessionManagerOptions {
   };
 }
 
-export function useSessionWebSocket() {
+export interface UseSessionWebSocketOptions {
+  clientConnectPayload?: Record<string, unknown>;
+}
+
+export function useSessionWebSocket(options?: UseSessionWebSocketOptions) {
   const managerRef = useRef<WebSocketSessionManager | null>(null);
 
   if (managerRef.current === null) {
-    managerRef.current = new WebSocketSessionManager(getDefaultManagerOptions());
+    const managerOptions = getDefaultManagerOptions();
+    if (options?.clientConnectPayload) {
+      managerOptions.clientConnectPayload = {
+        ...managerOptions.clientConnectPayload,
+        ...options.clientConnectPayload,
+      };
+    }
+    managerRef.current = new WebSocketSessionManager(managerOptions);
   }
 
   const manager = managerRef.current;
@@ -64,6 +75,8 @@ export function useSessionWebSocket() {
     type: T,
     payload: Record<string, unknown> = {},
   ) => manager.sendMessage(type, payload);
+  const updateClientConnectPayload = (payload: Record<string, unknown>) =>
+    manager.updateClientConnectPayload(payload);
 
   const managerOptions = getDefaultManagerOptions();
 
@@ -75,6 +88,7 @@ export function useSessionWebSocket() {
     subscribeToEnvelopes,
     sendEnvelope,
     sendMessage,
+    updateClientConnectPayload,
     demoModeRequested: Boolean(managerOptions.clientConnectPayload?.demoMode),
     sessionUrl: managerOptions.url,
   };

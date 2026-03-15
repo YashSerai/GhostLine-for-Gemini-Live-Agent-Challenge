@@ -8,15 +8,20 @@ from typing import Any, Final
 # Opener & mic test                                                             #
 # --------------------------------------------------------------------------- #
 
-DEMO_OPENER_LINE: Final[str] = (
-    "Ghostline, Containment Desk. The Archivist speaking. "
-    "I need to hear you clearly before we begin. "
-    "Grant microphone access now so the line can pick up your voice."
+DEMO_OPENER_LINE_GRANTED: Final[str] = (
+    "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
+    "I see your microphone is connected to the session, but I need explicit permission to hear you. "
+    "Please press the 'Grant Microphone Access' button on your interface now."
+)
+
+DEMO_OPENER_LINE_PROMPT: Final[str] = (
+    "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
+    "I need explicit permission to hear you. When you press the 'Grant Microphone' button, "
+    "a browser popup will come asking to grant access. Please accept it now."
 )
 
 DEMO_MIC_CONFIRMED_LINE: Final[str] = (
-    "Good, your microphone is connected. "
-    "Say something for me now so I can verify your audio is coming through."
+    "Good, I am receiving your audio. Please state your name so I can verify the vocal baseline."
 )
 
 # --------------------------------------------------------------------------- #
@@ -24,11 +29,14 @@ DEMO_MIC_CONFIRMED_LINE: Final[str] = (
 # --------------------------------------------------------------------------- #
 
 DEMO_CAMERA_REQUEST_LINE: Final[str] = (
-    "I need the room feed now. Grant camera access — I need to see what we're working with."
+    "Your voice is clear. Address the caller as Mr or Mrs followed by the name they "
+    "just gave you. Then say: Now I need the room feed. I need deliberate permission. "
+    "Please press the Grant Camera Access button so I can see what we're working with."
 )
 
 DEMO_ROOM_SCAN_LINE: Final[str] = (
-    "Good. Now slowly pan the camera from left to right. "
+    "Good. Now stand in the center of the room and slowly pan the camera around "
+    "in a full circle. Take about five seconds for a 360-degree view. "
     "I need to scan the full room before we begin containment."
 )
 
@@ -39,10 +47,7 @@ DEMO_ROOM_SCAN_ASSESSMENT_LINE: Final[str] = (
     "Containment protocol is warranted. Stay with me."
 )
 
-DEMO_CALIBRATION_LINE: Final[str] = (
-    "Calibration is one clean still frame of the room. Keep the doorway centered, "
-    "hold the phone level, capture it once, then stay still."
-)
+
 
 # --------------------------------------------------------------------------- #
 # Task assignment                                                               #
@@ -130,14 +135,14 @@ def get_demo_flavor_for_task(task_id: str) -> str | None:
 
 
 __all__ = [
-    "DEMO_CALIBRATION_LINE",
     "DEMO_CAMERA_REQUEST_LINE",
     "DEMO_DIAGNOSIS_INTERPRETATION_LINE",
     "DEMO_DIAGNOSIS_QUESTION_LINE",
     "DEMO_FINAL_CLOSURE_LINE",
     "DEMO_FLAVOR_BY_TASK",
     "DEMO_MIC_CONFIRMED_LINE",
-    "DEMO_OPENER_LINE",
+    "DEMO_OPENER_LINE_GRANTED",
+    "DEMO_OPENER_LINE_PROMPT",
     "DEMO_RECOVERY_LINE",
     "DEMO_ROOM_SCAN_ASSESSMENT_LINE",
     "DEMO_ROOM_SCAN_LINE",

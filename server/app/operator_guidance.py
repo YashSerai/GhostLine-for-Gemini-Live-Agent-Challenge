@@ -10,6 +10,7 @@ from .task_helpers import InvalidTaskIdError, get_task_by_id
 
 OperatorGuidanceBeat: TypeAlias = Literal[
     "microphone_request",
+    "mic_confirmed",
     "camera_request",
     "room_sweep",
     "calibration_acknowledged",
@@ -82,8 +83,18 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="microphone_request",
             text=(
-                "Thank you for calling Ghostline. Stay with me and follow my instructions exactly. "
-                "To hear you clearly, I need microphone access now."
+                "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
+                "I need explicit permission to hear you. Please press the "
+                "'Grant Microphone Access' button on your interface now."
+            ),
+        )
+
+    def build_mic_confirmed_guidance(self) -> OperatorGuidanceDirective:
+        return OperatorGuidanceDirective(
+            beat="mic_confirmed",
+            text=(
+                "Good, I am receiving your audio. "
+                "Please state your name so I can verify the vocal baseline."
             ),
         )
 
@@ -91,8 +102,9 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="camera_request",
             text=(
-                "Good. I have confirmed microphone access. Since you placed this call, I am treating the room as an active containment case. "
-                "You sound unsettled, so I am going to drive this. Grant camera access now so I can see the surrounding space."
+                "Your voice is clear. Address the caller as Mr or Mrs followed by the name they "
+                "just gave you. Then say: Now I need the room feed. I need deliberate permission. "
+                "Please press the Grant Camera Access button so I can see what we're working with."
             ),
         )
 
@@ -100,8 +112,9 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="room_sweep",
             text=(
-                "Good. I have confirmed camera access. Pan slowly across the room once. Show me the doorway, the nearest boundary, and any clear surface you can use. "
-                "Then keep the phone level and tap Finish Sweep plus Calibrate once so I can lock the first containment step."
+                "Good. Now stand in the center of the room and slowly pan the camera around "
+                "in a full circle. Take about five seconds for a 360-degree view. "
+                "I need to scan the full room before we begin containment."
             ),
         )
 
@@ -109,7 +122,10 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="calibration_acknowledged",
             text=(
-                "That is enough room context. Calibration is locked. I am placing the first containment step now."
+                "I can see the space. Our sensors are reading elevated residual activity "
+                "in this room. Spectral displacement concentrated near the threshold area. "
+                "This is consistent with a Class-2 residential haunting. "
+                "Containment protocol is warranted. Stay with me."
             ),
         )
 
@@ -170,7 +186,14 @@ class NormalModeOperatorGuidanceOrchestrator:
         if state_name == "microphone_request" and self._last_state != "microphone_request":
             directives.append(self.build_microphone_request_guidance())
 
-        if state_name == "camera_request" and self._last_state != "camera_request":
+        if state_name == "camera_request" and self._last_state == "microphone_request":
+            # Send mic_confirmed first, then camera_request.
+            # These are INSTRUCTIONS to Gemini — Gemini will follow them
+            # sequentially: ask for the name, wait for user response, then
+            # address them by name and request camera access.
+            directives.append(self.build_mic_confirmed_guidance())
+            directives.append(self.build_camera_request_guidance())
+        elif state_name == "camera_request" and self._last_state != "camera_request":
             directives.append(self.build_camera_request_guidance())
 
         if state_name == "room_sweep" and self._last_state != "room_sweep":

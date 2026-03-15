@@ -8,7 +8,9 @@ export type AutomatedSoundTrigger =
   | "task_assigned"
   | "verification_success"
   | "recovery"
-  | "final_verdict";
+  | "final_verdict"
+  | "paranormal_shriek"
+  | "door_creak";
 
 export type FinalContainmentVerdict = "secured" | "partial" | "inconclusive";
 
@@ -46,7 +48,7 @@ const TRIGGER_RULES: Record<AutomatedSoundTrigger, TriggerRuleDefinition> = {
     priority: 0,
   },
   camera_granted: {
-    cue: "light_tension",
+    cue: "verification_success",
     defaultDelayMs: 140,
     priority: 1,
   },
@@ -69,6 +71,16 @@ const TRIGGER_RULES: Record<AutomatedSoundTrigger, TriggerRuleDefinition> = {
     cue: "containment_result",
     defaultDelayMs: 240,
     priority: 5,
+  },
+  paranormal_shriek: {
+    cue: "spectral_shriek",
+    defaultDelayMs: 300,
+    priority: 6,
+  },
+  door_creak: {
+    cue: "door_creak",
+    defaultDelayMs: 200,
+    priority: 7,
   },
 } as const;
 
@@ -94,8 +106,10 @@ export function resolveAutomatedSoundTrigger(
   const orderedTriggers: AutomatedSoundTrigger[] = [
     "final_verdict",
     "recovery",
+    "paranormal_shriek",
     "verification_success",
     "task_assigned",
+    "door_creak",
     "camera_granted",
   ];
 
@@ -151,6 +165,21 @@ function didTriggerOccur(
     case "final_verdict":
       return (
         next.finalVerdict !== null && next.finalVerdict !== previous?.finalVerdict
+      );
+    case "paranormal_shriek":
+      // Fires when a recovery event occurs (failed verification = escalating activity)
+      return (
+        next.verificationStatus === "unconfirmed" &&
+        next.verificationAttemptId !== null &&
+        (previous?.verificationAttemptId !== next.verificationAttemptId ||
+          previous?.verificationStatus !== "unconfirmed")
+      );
+    case "door_creak":
+      // Fires on the FIRST task assignment (the disturbance begins)
+      return (
+        typeof next.taskAssignmentKey === "string" &&
+        next.taskAssignmentKey.length > 0 &&
+        (previous == null || previous.taskAssignmentKey == null)
       );
     default:
       return false;

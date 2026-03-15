@@ -103,6 +103,7 @@ export interface SessionStateSnapshot {
   taskHistory: SessionTaskHistoryEntry[];
   turnStatus: string | null;
   verificationStatus: string | null;
+  calibrationCapturedAt: string | null;
 }
 
 interface UseSessionStateOptions {
@@ -145,6 +146,7 @@ const IDLE_STATE: SessionStateSnapshot = {
   taskHistory: [],
   turnStatus: null,
   verificationStatus: null,
+  calibrationCapturedAt: null,
 };
 
 function getString(payload: Record<string, unknown>, key: string): string | null {
@@ -537,6 +539,7 @@ export function useSessionState(
           : [],
         turnStatus: getString(payload, "turnStatus"),
         verificationStatus: getString(payload, "verificationStatus"),
+        calibrationCapturedAt: getString(payload, "calibrationCapturedAt"),
       });
     });
   }, [subscribeToEnvelopes]);

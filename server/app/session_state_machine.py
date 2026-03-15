@@ -73,7 +73,7 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "consent": ("microphone_request", "ended"),
     "microphone_request": ("camera_request", "paused", "ended"),
     "camera_request": ("room_sweep", "paused", "ended"),
-    "room_sweep": ("camera_request", "waiting_ready", "paused", "ended"),
+    "room_sweep": ("camera_request", "task_assigned", "waiting_ready", "paused", "ended"),
     "calibration": ("camera_request", "task_assigned", "paused", "ended"),
     "task_assigned": ("camera_request", "waiting_ready", "swap_pending", "paused", "ended"),
     "waiting_ready": ("camera_request", "verifying", "swap_pending", "paused", "ended"),
@@ -195,8 +195,10 @@ class SessionStateMachine:
         # AI-observed room features from Gemini vision room scan.
         # When populated, these override keyword-based affordance inference.
         self.ai_observed_affordances: ObservedAffordances | None = None
+        self.browser_mic_permission: str = "prompt"
 
-    async def handle_client_connect(self) -> None:
+    async def handle_client_connect(self, payload: dict[str, Any]) -> None:
+        self.browser_mic_permission = payload.get("browserMicPermission", "prompt")
         self._transition("call_connected", "client_connect")
         self._transition("consent", "hotline_connected")
         self._transition("microphone_request", "in_call_permission_flow")

@@ -119,10 +119,10 @@ export function useMicrophoneBridge(
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          autoGainControl: true,
+          autoGainControl: false,
           channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
+          echoCancellation: false,
+          noiseSuppression: false,
         },
         video: false,
       });

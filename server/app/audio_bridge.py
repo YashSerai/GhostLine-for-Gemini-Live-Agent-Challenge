@@ -29,10 +29,15 @@ _SYSTEM_INSTRUCTION = (
     "dramatic. Think of a veteran field dispatcher who has seen thousands of "
     "cases. You are the caller's lifeline.\n\n"
 
+    "PACING RULES:\n"
+    "- Speak at a brisk, rapid tempo. Do not linger on words or pause between sentences.\n"
+    "- Your pacing should feel like a veteran dispatcher — efficient, every word earns its place.\n"
+    "- Deliver lines quickly and move on. Brevity is authority.\n\n"
+
     "PERSONA RULES:\n"
-    "- Speak in 1-3 sentences maximum per turn. Brevity is authority.\n"
+    "- Speak in 1-2 sentences maximum per turn. Brevity is authority.\n"
     "- You drive the call. You are in control. The caller follows your lead.\n"
-    "- Never ask the caller's name, personal details, or location.\n"
+    "- Do not ask for personal details or location.\n"
     "- Never use campy horror language, threats, profanity, gore, or jump scares.\n"
     "- Be honest about uncertainty. If you cannot see something clearly, say so.\n"
     "- Never bluff visual claims. If the frame is dark or blurry, say it is.\n"
@@ -43,12 +48,11 @@ _SYSTEM_INSTRUCTION = (
     "The backend controls the session flow. Your job is to speak the guidance "
     "naturally and respond to what the caller says and shows you. The flow is:\n"
     "1. Call connects — you greet the caller with a short Containment Desk opener\n"
-    "2. Microphone test — ask them to say something so you can verify their voice is coming through\n"
-    "3. Camera access — tell them you need the room feed\n"
-    "4. Room scan — ask them to slowly pan the camera left to right so you can assess the space\n"
-    "5. Tasks begin — you guide them through containment steps one at a time\n"
-    "6. Verification — when they say 'Ready to Verify', hold still for inspection\n"
-    "7. Case report — you close the case with a final assessment\n\n"
+    "2. Camera access — tell them you need the room feed\n"
+    "3. Room scan — ask them to slowly pan the camera left to right so you can assess the space\n"
+    "4. Tasks begin — you guide them through containment steps one at a time\n"
+    "5. Verification — when they say 'Ready to Verify', hold still for inspection\n"
+    "6. Case report — you close the case with a final assessment\n\n"
 
     "ROOM SCAN:\n"
     "When the camera goes live, ask the caller to slowly sweep the room from left "
@@ -224,15 +228,92 @@ class SessionAudioBridge:
         without creating a new conversational turn per frame.
         """
         await self.send_context_directive(
-            "ROOM_ANALYSIS: You are about to receive a series of camera "
-            "frames from the caller's room. As The Archivist, observe "
-            "what you see — note doorways, flat surfaces, light sources, "
-            "reflective surfaces, any objects of note. When you have "
-            "enough visual context, deliver a short atmospheric assessment: "
-            "our sensors have picked up residual activity in this space. "
-            "Stay procedural and calm. Do NOT interrupt yourself or "
-            "restart your analysis with each new frame — treat them as "
-            "a continuous feed."
+            "ROOM_ANALYSIS: The caller is about to slowly pan the camera around "
+            "the room. You will receive a series of camera frames as a continuous "
+            "feed. As The Archivist, comment briefly on what you ACTUALLY see in "
+            "each frame as it arrives. ONLY describe what is genuinely visible — "
+            "do NOT assume or invent objects that are not clearly in the frame. "
+            "Keep each observation to one short sentence. Stay procedural "
+            "and calm. Do NOT interrupt yourself or restart your analysis with each "
+            "new frame — treat them as a continuous sweep. Do NOT generate long "
+            "descriptions. When the sweep ends, deliver a short atmospheric "
+            "assessment: your sensors have picked up residual spectral activity "
+            "in this space. The readings are elevated. Containment protocol is "
+            "warranted. Do NOT speak over yourself — if you are still speaking "
+            "when a new frame arrives, finish your current thought first. "
+            "PACING REMINDER: maintain your brisk, rapid tempo throughout. "
+            "Do not slow down. Short punchy observations only."
+        )
+
+    async def prime_task_vision_context(
+        self,
+        task_name: str,
+        task_description: str,
+        *,
+        task_id: str | None = None,
+    ) -> None:
+        """Send the task-vision context directive when a new task starts.
+
+        Uses per-task verification profiles from TASK_LIBRARY for cinematic
+        baseline prompts and horror-flavored lore.
+        """
+        from .task_library import TASK_LIBRARY
+
+        # Look up the per-task verification profile
+        task_def = None
+        if task_id is not None:
+            for t in TASK_LIBRARY:
+                if t.id == task_id:
+                    task_def = t
+                    break
+
+        # Build baseline instructions if this task has visual verification
+        baseline_section = ""
+        if task_def and task_def.baseline_prompt:
+            baseline_section = (
+                f"\n\nBASELINE PHASE — SAY THIS FIRST (in your own urgent voice): "
+                f'"{task_def.baseline_prompt}" '
+                f"\nThen, while looking at the feed, deliver this lore: "
+                f'"{task_def.baseline_lore}" '
+                f"\nThe FIRST few frames you see after this are your BASELINE. "
+                f"MEMORIZE what the scene looks like RIGHT NOW — this is your "
+                f"reference for verifying completion."
+            )
+
+        completion_section = ""
+        if task_def and task_def.completion_check:
+            completion_section = (
+                f"\n\nVERIFICATION — When the caller says 'ready to verify' or "
+                f"'verify' or you believe they're done: "
+                f"COMPARE what you see NOW to your BASELINE memory. "
+                f"COMPLETION CHECK: {task_def.completion_check} "
+                f"If you see NO meaningful change from baseline, say something like: "
+                f"'I see no change from when we started. That does not look complete. "
+                f"Show me.' "
+                f"If you CAN see the change, confirm: 'Confirmed. I can see the "
+                f"difference. Task complete. Moving on.'"
+            )
+
+        await self.send_context_directive(
+            f"TASK_VISION: The caller is now performing: '{task_name}'. "
+            f"Action: {task_description}. "
+            "You are receiving continuous camera frames at ~1fps. "
+            "You are the VERIFIER — it is YOUR job to confirm visually. "
+            f"{baseline_section}"
+            f"{completion_section}"
+            "\n\nONGOING MONITORING RULES: "
+            "- If they seem idle for several frames: 'I see no movement. Begin now.' "
+            "- If they claim something you CANNOT see: 'I do not see that. Show me.' "
+            "- If you see progress: One short acknowledgment, then silence. "
+            "- ONLY describe what you ACTUALLY see. NEVER assume or invent objects. "
+            "- If the task needs an object you do NOT see, say so: "
+            "'I do not see that in frame.' "
+            "- Do NOT narrate every frame — only speak when something changes "
+            "or the caller needs direction. "
+            "- Finish your current thought before reacting to new frames. "
+            "\nPACING: Speak FAST. Urgent. Clipped sentences. You are an operator "
+            "on a live containment call — there is something in that room with them "
+            "and you need to move quickly. No leisurely descriptions. Punch it."
         )
 
     async def send_verification_frame(
@@ -414,7 +495,9 @@ class SessionAudioBridge:
             return
 
         session = await self._ensure_session()
-        self._suppress_operator_output_transcripts = True
+        # NOTE: Do NOT set _suppress_operator_output_transcripts here.
+        # Gemini's output_transcription events are the actual spoken words
+        # — they must flow through to the transcript panel.
         if emit_transcript:
             await self._forward_envelope(
                 {

@@ -123,6 +123,10 @@ export class WebSocketSessionManager {
     return this.snapshot;
   }
 
+  updateClientConnectPayload(payload: Record<string, unknown>): void {
+    Object.assign(this.clientConnectPayload, payload);
+  }
+
   connect(): void {
     if (this.socket !== null) {
       const state = this.socket.readyState;

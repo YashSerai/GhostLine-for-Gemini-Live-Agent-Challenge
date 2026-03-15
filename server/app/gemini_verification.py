@@ -24,71 +24,74 @@ LOGGER = logging.getLogger("ghostline.backend.gemini_verification")
 
 _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
     "T1": (
-        "The caller was asked to SHOW THE THRESHOLD — a doorway, door frame, "
-        "or room boundary edge. Look at this frame. Can you see a doorway, "
-        "door frame, archway, or clear room boundary edge? Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they showed the THRESHOLD — a doorway "
+        "or room boundary. Look at this frame carefully. Do you ACTUALLY see a "
+        "doorway, door frame, or boundary edge? If YES, confirm it. If NO, "
+        "challenge the caller: 'I do not see a threshold in the frame. Show me.'"
     ),
     "T2": (
-        "The caller was asked to CLOSE THE BOUNDARY — close a door or define "
-        "the boundary edge clearly. Look at this frame. Is a door closed or a "
-        "boundary edge clearly defined and sealed? Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they CLOSED THE BOUNDARY. Look at "
+        "this frame. Do you ACTUALLY see a closed door or sealed boundary? If YES, "
+        "confirm it. If NO, challenge: 'I do not see a closed boundary. Show me.'"
     ),
     "T3": (
-        "The caller was asked to INCREASE ILLUMINATION — turn on a lamp, "
-        "light switch, or flashlight. Look at this frame. Is the room visibly "
-        "brighter or is a light source active? Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they INCREASED ILLUMINATION. Look at "
+        "this frame. Does the room appear well-lit? Is a light source visibly on? "
+        "If YES, confirm. If the room looks dim, challenge: 'The room still looks "
+        "dim. Turn on a light and show me.'"
     ),
     "T4": (
-        "The caller was asked to STABILIZE THE CAMERA — hold the phone still. "
-        "Look at this frame. Is the image sharp and stable, or is it blurry "
-        "and shaking? Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they STABILIZED THE CAMERA. Look at "
+        "this frame. Is the image sharp and steady? If YES, confirm. If it looks "
+        "blurry or shaky, say: 'The image is still unstable. Hold the camera steady.'"
     ),
     "T5": (
-        "The caller was asked to PLACE PAPER ON A FLAT SURFACE. Look at this "
-        "frame. Can you see a sheet of paper or card on a table, desk, or flat "
-        "surface? Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they PLACED PAPER ON A SURFACE. Look "
+        "at this frame. Can you see a sheet of paper on a flat surface? If YES, "
+        "confirm. If NO, challenge: 'I do not see paper on a surface. Show me.'"
     ),
     "T6": (
-        "The caller was asked to CLEAR A SMALL SURFACE — clear a dinner-plate "
-        "sized area. Look at this frame. Can you see a small cleared area on a "
-        "surface? Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they CLEARED A SMALL SURFACE. Look "
+        "at this frame. Can you see a cleared area? If YES, confirm. If NO, "
+        "challenge: 'I do not see a cleared surface. Show me the area.'"
     ),
     "T7": (
-        "The caller was asked to SPEAK A CONTAINMENT PHRASE out loud. This is "
-        "an audio-only task. The frame is secondary — mark this as confirmed "
-        "if you heard them speak, or user_confirmed_only if unclear."
+        "VERIFICATION CHECK: The caller was asked to SPEAK A CONTAINMENT PHRASE. "
+        "This is audio-only. If you heard them speak a clear phrase, confirm it. "
+        "If you heard nothing clear, say: 'I did not hear a clear phrase. Say it again.'"
     ),
     "T8": (
-        "The caller was asked to DRAW A SIMPLE MARK on paper. Look at this "
-        "frame. Can you see a hand-drawn mark, symbol, or line on paper? "
-        "Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they DREW A MARK on paper. Look at "
+        "this frame. Can you see a mark, symbol, or line on paper? If YES, confirm. "
+        "If NO, challenge: 'I do not see a mark. Show me the paper.'"
     ),
     "T9": (
-        "The caller was asked to SHOW A REFLECTIVE SURFACE — mirror, glass, "
-        "or dark screen. Look at this frame. Can you see a reflective surface "
-        "in the frame? Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they showed a REFLECTIVE SURFACE. "
+        "Look at this frame. Can you see a mirror, glass, or reflective surface? "
+        "If YES, confirm. If NO, challenge: 'I do not see a reflective surface. Show me.'"
     ),
     "T10": (
-        "The caller was asked to HOLD UP A VIVID OBJECT — something brightly "
-        "colored. Look at this frame. Can you see a vivid, brightly colored "
-        "object being held up? Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they held up a VIVID OBJECT. Look at "
+        "this frame. Can you see a brightly colored object? If YES, confirm. "
+        "If NO, challenge: 'I do not see a vivid object. Hold it up clearly.'"
     ),
     "T11": (
-        "The caller was asked to do a WATER SINK RELEASE — run or pour water. "
-        "Look at this frame. Can you see water running or a sink/cup area? "
-        "Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they did a WATER RELEASE. Look at "
+        "this frame. Can you see running water or a sink area? If YES, confirm. "
+        "If NO, challenge: 'I do not see water. Show me the sink.'"
     ),
     "T12": (
-        "The caller was asked to place a SALT LINE near the boundary. Look at "
-        "this frame. Can you see salt or a white line/pile near a boundary? "
-        "Describe what you see briefly."
+        "VERIFICATION CHECK: The caller says they placed a SALT LINE. Look at "
+        "this frame. Can you see salt or a white line near a boundary? If YES, "
+        "confirm. If NO, challenge: 'I do not see a salt line. Show me.'"
     ),
 }
 
 _DEFAULT_VERIFICATION_PROMPT = (
-    "The caller was performing a containment task. Look at this frame and "
-    "describe what you see. Is there evidence of a deliberate action being "
-    "performed? Describe briefly."
+    "VERIFICATION CHECK: The caller says they completed a containment task. "
+    "Look at this frame carefully. Do you see evidence of any deliberate action? "
+    "If YES, describe and confirm it. If NO, challenge the caller: "
+    "'I do not see the task completed. Show me what you did.' Do NOT bluff."
 )
 
 
@@ -98,11 +101,10 @@ _DEFAULT_VERIFICATION_PROMPT = (
 
 ROOM_SCAN_ANALYSIS_PROMPT = (
     "ROOM_ANALYSIS: You are scanning the caller's room through their camera. "
-    "Describe what you see briefly and in character as The Archivist. "
-    "Note if you can see: a doorway or threshold, flat surfaces like tables "
-    "or desks, light sources, reflective surfaces, any objects of note. "
-    "Then deliver a short, atmospheric assessment — our sensors have picked "
-    "up residual activity in this space. Stay procedural and calm."
+    "Describe ONLY what you ACTUALLY see in the frame — do NOT assume or invent "
+    "objects. Keep it brief and in character as The Archivist. "
+    "After observing the room, deliver a short atmospheric assessment: our sensors "
+    "have picked up residual activity in this space. Stay procedural and calm."
 )
 
 
@@ -264,8 +266,22 @@ class GeminiVisionVerificationEngine:
         else:
             base_prompt = _DEFAULT_VERIFICATION_PROMPT
 
+        # Look up per-task completion check for before/after comparison
+        from .task_library import TASK_LIBRARY
+        completion_check = ""
+        if task_id is not None:
+            for t in TASK_LIBRARY:
+                if t.id == task_id and t.completion_check:
+                    completion_check = (
+                        f" BEFORE/AFTER CHECK: You saw the room BEFORE this task "
+                        f"started. {t.completion_check} Compare what you see NOW "
+                        f"to what you saw BEFORE. If the scene has NOT meaningfully "
+                        f"changed, this task is NOT done — say so clearly."
+                    )
+                    break
+
         return (
-            f"VERIFICATION_ANALYSIS: {base_prompt} "
+            f"VERIFICATION_ANALYSIS: {base_prompt}{completion_check} "
             "Based on what you see, state whether the task appears completed. "
             "Be honest — if the frame is too dark, blurry, or you cannot "
             "confirm the task, say so clearly. Do not bluff."
@@ -284,13 +300,11 @@ class GeminiVisionVerificationEngine:
     ) -> VerificationDecision:
         """Build a verification decision.
 
-        When the frame was successfully sent to Gemini, the model will speak
-        its analysis through the audio bridge.  We use quality metrics and
-        the verification class to set the decision while Gemini provides the
-        spoken grounding.
+        The actual verification happens through Gemini's spoken analysis —
+        the AI sees the frames and verbally confirms or challenges the user.
+        We record the outcome as user_confirmed_only since the AI's verbal
+        feedback is the real verification, not a programmatic decision.
         """
-        tier = task_tier if isinstance(task_tier, int) else 2
-
         # Self-report tasks (like T7 - Speak Containment Phrase) are audio-only
         if verification_class == "self_report":
             return VerificationDecision(
@@ -304,92 +318,25 @@ class GeminiVisionVerificationEngine:
                 status="user_confirmed_only",
             )
 
-        # If Gemini analyzed the frame, use quality metrics to decide
-        # The actual visual reasoning happens in Gemini's spoken response
         if frame_sent:
-            lighting = quality_metrics.lighting
-            blur = quality_metrics.blur
-            motion = quality_metrics.motion_stability
-
-            # Poor visual conditions — be honest about it
-            if lighting < 0.3 or blur > 0.7:
-                return VerificationDecision(
-                    block_reason="visual_quality_insufficient",
-                    confidence_band="low",
-                    is_mock=False,
-                    last_verified_item=None,
-                    mock_label=None,
-                    notes=(
-                        f"Gemini analyzed the frame (task: {task_name}). "
-                        f"Quality metrics: lighting={lighting:.2f}, blur={blur:.2f}, "
-                        f"stability={motion:.2f}. Conditions insufficient for confident verification."
-                    ),
-                    reason="Frame quality too low for confident visual verification.",
-                    status="unconfirmed",
-                )
-
-            # Tier 1 strict visual — high bar
-            if tier == 1 and verification_class == "strict_visual":
-                if lighting >= 0.5 and blur <= 0.5 and motion >= 0.4:
-                    return VerificationDecision(
-                        block_reason=None,
-                        confidence_band="high" if lighting >= 0.65 else "medium",
-                        is_mock=False,
-                        last_verified_item=task_name if isinstance(task_name, str) else None,
-                        mock_label=None,
-                        notes=(
-                            f"Gemini vision analysis complete for {task_name}. "
-                            f"Frame quality: lighting={lighting:.2f}, blur={blur:.2f}, "
-                            f"stability={motion:.2f}. Task appears completed in frame."
-                        ),
-                        reason=f"Visual analysis confirms {task_name} completion.",
-                        status="confirmed",
-                    )
-                else:
-                    return VerificationDecision(
-                        block_reason="frame_quality_marginal",
-                        confidence_band="low",
-                        is_mock=False,
-                        last_verified_item=None,
-                        mock_label=None,
-                        notes=(
-                            f"Gemini analyzed the frame for {task_name} but quality "
-                            f"metrics are marginal: lighting={lighting:.2f}, blur={blur:.2f}, "
-                            f"stability={motion:.2f}."
-                        ),
-                        reason="Frame quality marginal for strict visual verification.",
-                        status="unconfirmed",
-                    )
-
-            # Tier 2 soft visual — lower bar
-            if lighting >= 0.35 and blur <= 0.6:
-                return VerificationDecision(
-                    block_reason=None,
-                    confidence_band="medium",
-                    is_mock=False,
-                    last_verified_item=task_name if isinstance(task_name, str) else None,
-                    mock_label=None,
-                    notes=(
-                        f"Gemini vision analysis complete for {task_name} (soft visual). "
-                        f"Frame quality acceptable: lighting={lighting:.2f}, blur={blur:.2f}."
-                    ),
-                    reason=f"Visual analysis supports {task_name} completion.",
-                    status="confirmed",
-                )
-
-            # Fallback for soft visual with poor quality
+            # Gemini has received the frame and will speak its analysis.
+            # Return UNCONFIRMED so the state machine sends the task to
+            # recovery_active — forcing the user to retry and actually show
+            # evidence. The AI will also verbally challenge via the
+            # verification prompt.
             return VerificationDecision(
-                block_reason=None,
+                block_reason="ai_visual_verification_pending",
                 confidence_band="low",
                 is_mock=False,
-                last_verified_item=task_name if isinstance(task_name, str) else None,
+                last_verified_item=None,
                 mock_label=None,
                 notes=(
-                    f"Gemini analyzed frame for {task_name}. "
-                    "Quality marginal but logged as user-confirmed."
+                    f"Gemini vision analysis sent for {task_name}. "
+                    "AI is verifying visually. Task remains unconfirmed until "
+                    "the AI can see evidence of completion."
                 ),
-                reason="Visual conditions marginal; logged as caller-confirmed only.",
-                status="user_confirmed_only",
+                reason=f"Visual verification pending for {task_name}. Show the completed task to the camera.",
+                status="unconfirmed",
             )
 
         # Frame could not be sent — fall back to user-confirmed

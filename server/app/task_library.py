@@ -91,6 +91,11 @@ class TaskDefinition:
     verification_class: TaskVerificationClass
     substitution_group: str
     can_block_progression: bool
+    # -- Per-task verification profile --
+    baseline_prompt: str | None = None
+    baseline_lore: str | None = None
+    target_object: str | None = None
+    completion_check: str | None = None
 
 
 TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
@@ -109,6 +114,21 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="strict_visual",
         substitution_group="boundary_control",
         can_block_progression=True,
+        baseline_prompt=(
+            "Point the camera at your doorway — quickly. I need to see the "
+            "full frame, threshold to threshold."
+        ),
+        baseline_lore=(
+            "These things feed on transitional spaces. Doorways, hallways, "
+            "the edges where one room bleeds into another. Last caller I had, "
+            "said something was standing just past the frame — right where "
+            "the hallway light didn't quite reach."
+        ),
+        target_object="doorway or room edge",
+        completion_check=(
+            "The doorway or room boundary should be clearly visible and "
+            "defined in frame."
+        ),
     ),
     # Strong boundary step that turns the opener into an active containment
     # move by closing or defining the edge of the room.
@@ -125,6 +145,21 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="strict_visual",
         substitution_group="boundary_control",
         can_block_progression=True,
+        baseline_prompt=(
+            "Show me the door as it is right now — open, right? I need to "
+            "see it before you close it."
+        ),
+        baseline_lore=(
+            "An open door is an invitation. You hear that? That low hum? "
+            "That's displacement pressure building on the other side. Shut "
+            "it. Shut it now. And whatever you do, do NOT look through the "
+            "crack as it closes."
+        ),
+        target_object="open door",
+        completion_check=(
+            "The door that was previously open should now be visibly closed. "
+            "Compare the frames — if the door is still open, the task is NOT done."
+        ),
     ),
     # Visibility gate that improves every later camera-aware step without
     # pretending the system can reason from poor lighting.
@@ -141,6 +176,22 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="strict_visual",
         substitution_group="visibility_control",
         can_block_progression=True,
+        baseline_prompt=(
+            "Hold the camera steady. Let me see the current light level "
+            "in the room — don't move."
+        ),
+        baseline_lore=(
+            "Low light is where they operate. You can't see them but they "
+            "can see you. Every shadow in that room right now is a blind spot "
+            "for us and a hiding place for whatever is in there with you. "
+            "Turn on every light you can reach. Now."
+        ),
+        target_object="room scene",
+        completion_check=(
+            "The room should be VISIBLY brighter than the baseline frame. "
+            "Compare overall exposure and brightness. If the scene looks the same "
+            "darkness level, the lights were NOT turned on."
+        ),
     ),
     # Stability gate that makes the camera preview useful before verification
     # windows or diagnosis beats rely on the room feed.
@@ -157,6 +208,21 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="strict_visual",
         substitution_group="stability_control",
         can_block_progression=True,
+        baseline_prompt=(
+            "I'm getting motion blur on my end. Hold the camera dead "
+            "still — rest it against something solid."
+        ),
+        baseline_lore=(
+            "I need a clean read. The displacement pattern looks "
+            "like it's oscillating, but I can't tell if that's the "
+            "disturbance or your hands shaking. Brace it. Give me a "
+            "rock-solid feed."
+        ),
+        target_object="stable frame",
+        completion_check=(
+            "The camera feed should be noticeably steadier — less blur, "
+            "consistent framing between consecutive frames."
+        ),
     ),
     # Anchor step that introduces a clean physical reference point the hotline
     # can reuse for later marks or object placement.
@@ -173,6 +239,22 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="strict_visual",
         substitution_group="surface_anchor",
         can_block_progression=True,
+        baseline_prompt=(
+            "Show me a flat surface — table, desk, whatever you have. "
+            "I need to see it empty first."
+        ),
+        baseline_lore=(
+            "We're setting an anchor. Entities displace physical space — "
+            "if something moves that paper when you're not looking, we know "
+            "the displacement field is active in that zone. Think of it as "
+            "a tripwire. Get the paper on there."
+        ),
+        target_object="flat surface or table",
+        completion_check=(
+            "A sheet of paper should now be visible on the flat surface that "
+            "was shown in the baseline. If the surface still looks empty, "
+            "the paper was NOT placed."
+        ),
     ),
     # Companion anchor step that clears staging space when paper placement or
     # marking steps need a reliable tabletop area.
@@ -189,6 +271,20 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="strict_visual",
         substitution_group="surface_anchor",
         can_block_progression=True,
+        baseline_prompt=(
+            "Show me the surface you're going to use. I need to see "
+            "what's on it right now."
+        ),
+        baseline_lore=(
+            "Clutter disrupts containment geometry. Every object in that "
+            "zone is a potential conduit. Clear it. I've seen setups where "
+            "a single cup in the wrong spot broke an entire containment ring."
+        ),
+        target_object="cluttered surface area",
+        completion_check=(
+            "The surface that had objects on it in the baseline should now be "
+            "visibly cleared — a clean open area where items were before."
+        ),
     ),
     # Spoken seal that keeps the hotline voice-first and gives the operator a
     # ritualized line to confirm in the live call.
@@ -205,6 +301,11 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="self_report",
         substitution_group="sealing_ritual",
         can_block_progression=True,
+        # Self-report — no visual baseline needed
+        baseline_prompt=None,
+        baseline_lore=None,
+        target_object=None,
+        completion_check=None,
     ),
     # Ritual marking step that adds hotline texture without pretending every
     # drawn symbol is visually robust enough for hard gating.
@@ -221,6 +322,22 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="soft_visual",
         substitution_group="marking_ritual",
         can_block_progression=False,
+        baseline_prompt=(
+            "Hold up the paper or card — blank side toward me. Let me "
+            "see it clean first."
+        ),
+        baseline_lore=(
+            "Containment marks aren't symbols — they're interruptions. You're "
+            "breaking the surface the entity uses to project itself. Any mark "
+            "works. An X, a circle, your initials — doesn't matter. What "
+            "matters is that YOU put it there. Make it deliberate."
+        ),
+        target_object="blank paper or card",
+        completion_check=(
+            "The paper or card should now show a drawn mark that wasn't there in "
+            "the baseline. The paper was blank before — it should have visible "
+            "ink or pencil marks now."
+        ),
     ),
     # Reflection beat that supports room diagnosis and visual flavor when the
     # scene needs another controlled way to inspect surfaces.
@@ -237,6 +354,21 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="soft_visual",
         substitution_group="visibility_control",
         can_block_progression=False,
+        baseline_prompt=(
+            "Grab a mirror — any reflective surface. Phone screen face-up "
+            "works. Hold it toward the camera."
+        ),
+        baseline_lore=(
+            "Reflections are how they watch you back. You ever catch a mirror "
+            "doing something your body didn't? A half-second delay, a shadow "
+            "that moved wrong? That's not your imagination — that's displacement "
+            "bleed. Hold it steady. Let me look."
+        ),
+        target_object="mirror or reflective surface",
+        completion_check=(
+            "A reflective surface should be clearly visible and held toward "
+            "the camera for inspection."
+        ),
     ),
     # Visibility support beat that gives the operator a high-contrast object to
     # compare against the room feed during uncertain reads.
@@ -253,6 +385,21 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="soft_visual",
         substitution_group="visibility_control",
         can_block_progression=False,
+        baseline_prompt=(
+            "Show me your hands — empty, palms up. I'm checking the "
+            "feed calibration."
+        ),
+        baseline_lore=(
+            "Color shift is the first sign of active displacement. If that red "
+            "looks orange on my end, or that blue goes grey — we've got a field "
+            "distortion. Hold something bright and vivid in front of the camera. "
+            "I need to compare."
+        ),
+        target_object="hands or empty area",
+        completion_check=(
+            "A bright, vivid, colorful object should now be visible in frame "
+            "where there wasn't one before."
+        ),
     ),
     # Optional release-style seal step that keeps the hotline feeling adaptive
     # when a sink, cup, or water source is nearby.
@@ -269,6 +416,20 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="soft_visual",
         substitution_group="sealing_ritual",
         can_block_progression=False,
+        baseline_prompt=(
+            "Is there a sink near you? A cup of water? Show me what "
+            "you have access to."
+        ),
+        baseline_lore=(
+            "Running water disrupts the resonance pattern. It's not spiritual — "
+            "it's physics. The displacement field can't maintain coherence near "
+            "flowing water. Even a trickle breaks it up. Turn it on."
+        ),
+        target_object="sink or cup or water source",
+        completion_check=(
+            "Water should be visibly running from the tap, or being poured "
+            "from a cup. Look for motion of water compared to the dry baseline."
+        ),
     ),
     # Optional marking variant that can swap in when the caller has salt but no
     # paper or prefers a simpler ritual boundary move.
@@ -285,6 +446,21 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="soft_visual",
         substitution_group="marking_ritual",
         can_block_progression=False,
+        baseline_prompt=(
+            "Show me the floor near the boundary. The edge of the room, "
+            "near the door."
+        ),
+        baseline_lore=(
+            "Salt has been used as a containment boundary for longer than "
+            "this hotline has existed. It's not superstition — crystalline "
+            "structures scatter the displacement wavefront. Lay a line. "
+            "Even a small pile works."
+        ),
+        target_object="floor near boundary",
+        completion_check=(
+            "Salt should be visible on the floor near the boundary — a white "
+            "line or pile that wasn't there in the baseline frame."
+        ),
     ),
     # Pacing fallback that keeps the operator alive between harder tasks and can
     # settle the call when the room or caller needs a controlled pause.
@@ -301,6 +477,10 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="self_report",
         substitution_group="pacing_fallback",
         can_block_progression=False,
+        baseline_prompt=None,
+        baseline_lore=None,
+        target_object=None,
+        completion_check=None,
     ),
     # Diagnosis prompt that keeps the hotline conversational and records what
     # the caller actually experienced without inventing new ritual steps.
@@ -317,6 +497,10 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="self_report",
         substitution_group="diagnostic_probe",
         can_block_progression=False,
+        baseline_prompt=None,
+        baseline_lore=None,
+        target_object=None,
+        completion_check=None,
     ),
     # Companion diagnosis prompt that localizes the disturbance and helps later
     # path selection stay grounded in what the caller reported.
@@ -333,6 +517,10 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="self_report",
         substitution_group="diagnostic_probe",
         can_block_progression=False,
+        baseline_prompt=None,
+        baseline_lore=None,
+        target_object=None,
+        completion_check=None,
     ),
 )
 
