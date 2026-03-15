@@ -24,19 +24,20 @@ Ghostline is a **Live Agents** experience — not a chatbot or text-box wrapper.
 - **Vision Verification** — During "Ready to Verify" moments, captured frames are sent to Gemini for visual analysis of task completion
 - **AI-Reasoned Recovery** — When verification fails, Gemini receives the task context and failure reason, then provides specific, actionable recovery advice instead of generic retry instructions
 
-### Adaptive Dialogue
+### Adaptive Dialogue & Cinematic Verification
 
-- **Context Directives** — After each verification result, Gemini receives structured context so it can generate operator dialogue that references what just happened
-- **Inter-task Flavor** — Between tasks, the operator weaves in containment lore observations
-- **Honest Uncertainty** — The system uses explicit verification outcomes (`confirmed`, `unconfirmed`, `user_confirmed_only`) and never bluffs about what it can see
+- **Context Directives** — After each verification result, Gemini receives structured context so it can generate operator dialogue that references what just happened.
+- **Cinematic Pacing** — The operator weaves in containment lore observations between tasks, using a panic-inducing but professional tone to heighten the reality of the incident.
+- **Honest Uncertainty** — The system uses explicit verification outcomes (`confirmed`, `unconfirmed`, `user_confirmed_only`) and never bluffs about what it can see.
 
 ### Session Experience
 
-- **Onboarding Splash** — "What is Ghostline?" intro screen with "Start the Hotline" CTA
-- **Session Timer** — Live MM:SS timer visible during the call and on the case report
-- **Containment Score** — Calculated from verification outcomes, displayed as a gradient progress bar (green/amber/red)
-- **Case Report** — Structured report with verdict, incident classification, task-by-task results, and containment score
-- **Share Report** — One-tap sharing via Web Share API (mobile) or clipboard copy (desktop)
+- **Dual-Mode Splash Screen** — "Launch Demo Mode" (highly optimized deterministic path) vs "Launch Beta Mode" (dynamic unscripted path) accessible right from the start.
+- **Session Timer** — Live MM:SS timer visible during the call and on the case report.
+- **Dynamic Sound Design** — Pre-baked ambient tension beds, sudden shrieks, and threshold creaks perfectly timed to task execution without interrupting the operator.
+- **Containment Score** — Calculated from verification outcomes, displayed as a gradient progress bar (green/amber/red).
+- **Case Report** — Structured report with verdict, incident classification, task-by-task results, and containment score.
+- **Share Report** — One-tap sharing via Web Share API (mobile) or clipboard copy (desktop).
 
 ### Demo Mode
 
@@ -57,7 +58,7 @@ Ghostline is a **Live Agents** experience — not a chatbot or text-box wrapper.
 |-------|-----------|
 | Frontend | React, Vite, TypeScript |
 | Backend | Python, FastAPI, WebSocket |
-| AI | Google GenAI SDK, Gemini Live on Vertex AI |
+| AI | **Google GenAI SDK**, Gemini Live on Vertex AI |
 | Cloud | Cloud Run, Firestore, Cloud Logging |
 | Infrastructure | Docker, gcloud CLI |
 
@@ -77,7 +78,7 @@ The primary live AI dependency is Gemini Live on Vertex AI for realtime voice, v
 1. **Staged verification > continuous vision** — Discrete "Ready to Verify" moments let the product stay honest about certainty
 2. **Barge-in quality is make-or-break** — If interruption is slow, the entire experience feels scripted
 3. **AI-driven task selection is the differentiator** — Having Gemini's room scan determine which tasks are available makes every session feel unique
-4. **Recovery should be reasoned, not canned** — AI recovery that references the specific failure ("I can see the paper isn't fully folded") is dramatically more convincing
+4. **Recovery should be reasoned, not canned** — AI recovery that references the specific failure ("I can see the door is still slightly cracked open") is dramatically more convincing
 5. **Grounding HUD builds trust** — Showing the session state, verification status, and recovery step makes the AI feel transparent
 
 ## Architecture Diagram
@@ -85,6 +86,13 @@ The primary live AI dependency is Gemini Live on Vertex AI for realtime voice, v
 See [docs/ARCHITECTURE_DIAGRAM.png](docs/ARCHITECTURE_DIAGRAM.png) and the Mermaid source at [docs/ARCHITECTURE_DIAGRAM.mmd](docs/ARCHITECTURE_DIAGRAM.mmd).
 
 ## Live Agents Alignment
+
+Included below is a breakdown of how Ghostline perfectly meets the Hackathon requirements:
+
+### Mandatory Tech Used
+- ✅ Leverages a **Gemini model** (`gemini-live-2.5-flash-native-audio` via Vertex AI)
+- ✅ Built strictly using the **Google GenAI SDK** in our Python backend.
+- ✅ Uses at least one Google Cloud Service (Hosted heavily on **Cloud Run**, persisting to **Firestore**, tracking via **Cloud Logging**, and powered by **Vertex AI**).
 
 ### Beyond the Text Box
 Voice-first, camera-aware live call — not a chat interface with a voice option.

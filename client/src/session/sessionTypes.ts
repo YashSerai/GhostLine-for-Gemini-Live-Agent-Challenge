@@ -12,6 +12,7 @@ export const CLIENT_SESSION_MESSAGE_TYPES = [
   "swap_request",
   "pause",
   "stop",
+  "client_event",
 ] as const;
 
 export const SERVER_SESSION_MESSAGE_TYPES = [

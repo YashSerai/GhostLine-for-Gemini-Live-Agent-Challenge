@@ -818,6 +818,14 @@ def register_websocket_gateway(app: FastAPI) -> None:
                             "websocket_calibration_status_handled",
                             session_id=session_id,
                         )
+                    elif envelope.message_type == "client_event":
+                        await state_machine.handle_client_event(envelope.payload)
+                        log_event(
+                            LOGGER,
+                            logging.INFO,
+                            "websocket_client_event_handled",
+                            session_id=session_id,
+                        )
                     elif envelope.message_type == "task_vision_frame":
                         # Continuous camera frames during task execution
                         frame_data = envelope.payload.get("data")

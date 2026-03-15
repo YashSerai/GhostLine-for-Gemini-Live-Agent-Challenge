@@ -39,10 +39,26 @@ _SYSTEM_INSTRUCTION = (
     "- You drive the call. You are in control. The caller follows your lead.\n"
     "- Do not ask for personal details or location.\n"
     "- Never use campy horror language, threats, profanity, gore, or jump scares.\n"
-    "- Be honest about uncertainty. If you cannot see something clearly, say so.\n"
-    "- Never bluff visual claims. If the frame is dark or blurry, say it is.\n"
     "- When the caller sounds scared, be calm and reassuring but stay procedural.\n"
     "- Do not break character. You are a containment specialist, not an AI assistant.\n\n"
+
+    "VISION HONESTY — ABSOLUTE RULES (NEVER BREAK THESE):\n"
+    "- BEFORE describing ANYTHING in a frame, first assess: can you CLEARLY see "
+    "the scene? If the frame is dark, blurry, shaky, obstructed, too close, or "
+    "unclear for ANY reason, say so IMMEDIATELY. Examples:\n"
+    "  'The frame is too dark. I cannot see the room.'\n"
+    "  'Too much motion blur. Hold the camera still.'\n"
+    "  'The camera is too close. Pull back so I can see the space.'\n"
+    "  'The lens appears covered. Check your camera.'\n"
+    "  'I am not getting a usable feed. Check your camera and try again.'\n"
+    "- NEVER fabricate, assume, or invent objects, rooms, doorways, features, "
+    "or actions that are not CLEARLY VISIBLE in the frame.\n"
+    "- If you CANNOT see something, say 'I cannot see that.' Do NOT guess.\n"
+    "- You would RATHER say 'I cannot confirm' 100 times than bluff ONCE.\n"
+    "- If the FIRST frames you receive are unusable, do NOT describe a room. "
+    "Say: 'I am not getting a usable feed. Make sure your camera is working "
+    "and pan slowly so I can see the space.'\n"
+    "- If the caller CLAIMS something you cannot see: 'I do not see that. Show me.'\n\n"
 
     "THE CALL FLOW:\n"
     "The backend controls the session flow. Your job is to speak the guidance "
@@ -56,18 +72,18 @@ _SYSTEM_INSTRUCTION = (
 
     "ROOM SCAN:\n"
     "When the camera goes live, ask the caller to slowly sweep the room from left "
-    "to right. You will receive frames from the camera. Describe what you actually "
-    "see — doorways, surfaces, light sources, objects. Then deliver a short, "
-    "atmospheric assessment: your sensors have picked up residual spectral activity "
-    "in this space. The readings are elevated. Containment protocol is warranted. "
-    "Keep it procedural and grounded in what you can actually see in the frame.\n\n"
+    "to right. You will receive frames from the camera. FIRST check frame quality "
+    "(see VISION HONESTY rules above). If the frames are usable, describe what "
+    "you ACTUALLY see — doorways, surfaces, light sources, objects. Then deliver "
+    "a short, atmospheric assessment. Keep it procedural and grounded in what you "
+    "can actually see in the frame.\n\n"
 
     "VISION ANALYSIS:\n"
     "You have access to the caller's camera feed. When the backend sends you frames:\n"
     "- ROOM_ANALYSIS: Describe the room features you see and assess readiness.\n"
     "- VERIFICATION_ANALYSIS: Analyze whether a specific containment task was completed. "
-    "Be honest about what you see. If the task is done, confirm it. If you cannot "
-    "determine completion, say so clearly with a reason.\n\n"
+    "DEFAULT TO NOT CONFIRMED. Only confirm if the evidence is OBVIOUS and UNMISTAKABLE. "
+    "If you cannot determine completion or the frame is unclear, say so with a reason.\n\n"
 
     "INTER-TASK FLAVOR (CONTAINMENT LORE):\n"
     "Between tasks, you should occasionally weave in short pieces of containment "
@@ -102,6 +118,57 @@ StartVerificationCallback = Callable[[dict[str, Any]], Awaitable[None]]
 HandleSwapRequestCallback = Callable[[dict[str, Any]], Awaitable[None]]
 RecordUserTranscriptCallback = Callable[[str, bool], None]
 UpdateDemoBargeInCallback = Callable[[dict[str, Any]], Awaitable[None]]
+
+# Minimum JPEG payload size — a 640×480 all-black JPEG is typically <600 bytes.
+# Valid camera frames with real content are usually 5KB+.
+_MIN_JPEG_SIZE = 800
+# When sampling raw bytes from the JPEG interior, if the average is below this
+# threshold the frame is almost certainly black or nearly black.
+_MIN_SAMPLE_BRIGHTNESS = 20
+
+
+def _check_frame_brightness(
+    image_bytes: bytes,
+    *,
+    session_id: str = "",
+) -> bool:
+    """Return True if the JPEG frame appears to contain a visible scene.
+
+    Uses two lightweight heuristics that don't require PIL:
+    1. **File size** – a black JPEG compresses to < ~600 bytes for typical
+       camera resolutions.  Real room scenes are usually 5KB+.
+    2. **Byte sampling** – sample ~200 bytes from the interior of the JPEG
+       data (past the headers).  If the average byte value is very low the
+       image is almost certainly black or near-black.
+    """
+    if len(image_bytes) < _MIN_JPEG_SIZE:
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "frame_rejected_too_small",
+            session_id=session_id,
+            frame_bytes=len(image_bytes),
+        )
+        return False
+
+    # Sample bytes from the middle 50% of the JPEG payload (skip headers/footer)
+    start = len(image_bytes) // 4
+    end = start + min(200, len(image_bytes) // 2)
+    sample = image_bytes[start:end]
+    if sample:
+        avg = sum(sample) / len(sample)
+        if avg < _MIN_SAMPLE_BRIGHTNESS:
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "frame_rejected_too_dark",
+                session_id=session_id,
+                avg_sample_brightness=round(avg, 1),
+                frame_bytes=len(image_bytes),
+            )
+            return False
+
+    return True
 
 
 class AudioBridgePayloadError(ValueError):
@@ -154,6 +221,7 @@ class SessionAudioBridge:
         self._demo_barge_in_restatement_pending = False
         self._demo_barge_in_completed = False
         self._suppress_operator_output_transcripts = False
+        self._last_frame_sent_at: float = 0.0
 
     @property
     def gemini_session(self) -> GeminiLiveSession | None:
@@ -190,8 +258,19 @@ class SessionAudioBridge:
         scanning begins, so Gemini knows how to interpret these frames
         without creating a new conversational turn for each one.
 
+        Includes:
+        - Server-side minimum interval gate (1.5s)
+        - Server-side frame brightness check (rejects black/dark frames)
+
         Returns True if the frame was sent successfully.
         """
+        import time
+
+        now = time.monotonic()
+        if now - self._last_frame_sent_at < 1.5:
+            return False  # throttle — too soon since last frame
+        self._last_frame_sent_at = now
+
         session = await self._ensure_session()
         try:
             image_bytes = base64.b64decode(frame_base64)
@@ -199,6 +278,10 @@ class SessionAudioBridge:
             return False
 
         if not image_bytes:
+            return False
+
+        # Server-side brightness check — reject black/very dark frames
+        if not _check_frame_brightness(image_bytes, session_id=self.session_id):
             return False
 
         try:
@@ -231,9 +314,16 @@ class SessionAudioBridge:
             "ROOM_ANALYSIS: The caller is about to slowly pan the camera around "
             "the room. You will receive a series of camera frames as a continuous "
             "feed. As The Archivist, comment briefly on what you ACTUALLY see in "
-            "each frame as it arrives. ONLY describe what is genuinely visible — "
-            "do NOT assume or invent objects that are not clearly in the frame. "
-            "Keep each observation to one short sentence. Stay procedural "
+            "each frame as it arrives. "
+            "\nFRAME QUALITY GATE (CHECK FIRST): Before describing ANYTHING, "
+            "assess frame quality. If the frame is dark, blurry, shaky, "
+            "obstructed, or unclear for ANY reason, say so and ask the caller "
+            "to fix it. Do NOT proceed with room analysis until you have a "
+            "clear, stable, well-lit frame. If you are unsure whether you can "
+            "see something, say 'I cannot confirm that.' Do NOT describe "
+            "objects you cannot clearly see. Do NOT invent rooms or features. "
+            "\nIf frames ARE clear: describe what is genuinely visible — "
+            "keep each observation to one short sentence. Stay procedural "
             "and calm. Do NOT interrupt yourself or restart your analysis with each "
             "new frame — treat them as a continuous sweep. Do NOT generate long "
             "descriptions. When the sweep ends, deliver a short atmospheric "
@@ -280,27 +370,47 @@ class SessionAudioBridge:
                 f"reference for verifying completion."
             )
 
+        # Per-task baseline object validation using target_object
+        if task_def and task_def.target_object:
+            baseline_section += (
+                f"\n\nBASELINE OBJECT CHECK: Before proceeding, confirm you can "
+                f"ACTUALLY see '{task_def.target_object}' in the frame. If you "
+                f"CANNOT see it, say: 'I do not see {task_def.target_object} in "
+                f"the frame. Show me {task_def.target_object} before we continue.' "
+                f"Do NOT proceed with the task until the required object is visible. "
+                f"Do NOT assume it is there — you must SEE it."
+            )
+
         completion_section = ""
         if task_def and task_def.completion_check:
             completion_section = (
-                f"\n\nVERIFICATION — When the caller says 'ready to verify' or "
-                f"'verify' or you believe they're done: "
-                f"COMPARE what you see NOW to your BASELINE memory. "
-                f"COMPLETION CHECK: {task_def.completion_check} "
-                f"If you see NO meaningful change from baseline, say something like: "
+                f"\n\nVERIFICATION — 3-GATE CHECK (when the caller says 'ready to verify'):\n"
+                f"GATE 1 — FRAME QUALITY: Is this frame clear enough to analyze? "
+                f"If dark, blurry, shaky, or obstructed: 'I cannot verify — the "
+                f"frame is not readable. Show me clearly.'\n"
+                f"GATE 2 — OBJECT PRESENCE: Can you see '{task_def.target_object or 'the required item'}'? "
+                f"If not visible: 'I do not see {task_def.target_object or 'what I need'}. Show me.'\n"
+                f"GATE 3 — COMPLETION EVIDENCE: COMPARE what you see NOW to your "
+                f"BASELINE memory. {task_def.completion_check} "
+                f"If you see NO meaningful change from baseline, say: "
                 f"'I see no change from when we started. That does not look complete. "
                 f"Show me.' "
-                f"If you CAN see the change, confirm: 'Confirmed. I can see the "
-                f"difference. Task complete. Moving on.'"
+                f"Only confirm if the evidence is OBVIOUS and UNMISTAKABLE: "
+                f"'Confirmed. I can see the difference. Task complete. Moving on.'"
             )
 
         await self.send_context_directive(
             f"TASK_VISION: The caller is now performing: '{task_name}'. "
             f"Action: {task_description}. "
-            "You are receiving continuous camera frames at ~1fps. "
+            "You are receiving continuous camera frames. "
             "You are the VERIFIER — it is YOUR job to confirm visually. "
             f"{baseline_section}"
             f"{completion_section}"
+            "\n\nANTI-HALLUCINATION MONITORING: "
+            "If the frame is dark, obstructed, or you cannot make out the scene, "
+            "say: 'I have lost visual. Check your camera.' Do NOT describe objects "
+            "or progress you cannot actually see. If you are unsure whether something "
+            "is in frame, say 'I cannot confirm that.' NEVER assume."
             "\n\nONGOING MONITORING RULES: "
             "- If they seem idle for several frames: 'I see no movement. Begin now.' "
             "- If they claim something you CANNOT see: 'I do not see that. Show me.' "
@@ -337,11 +447,21 @@ class SessionAudioBridge:
         if not image_bytes:
             return False
 
+        # Server-side brightness check — reject black/very dark frames
+        if not _check_frame_brightness(image_bytes, session_id=self.session_id):
+            return False
+
         prompt = (
             f"VERIFICATION_ANALYSIS: The caller was performing task '{task_name or 'unknown'}' "
-            f"(ID: {task_id or 'unknown'}). Analyze this frame. Can you see evidence "
-            "that the task was completed? Describe what you see briefly and honestly. "
-            "If the frame is dark, blurry, or you cannot confirm, say so clearly."
+            f"(ID: {task_id or 'unknown'}). "
+            "3-GATE CHECK:\n"
+            "GATE 1: Is this frame clear enough? If dark/blurry/shaky: "
+            "'I cannot verify — frame is not readable.'\n"
+            "GATE 2: Can you see evidence relevant to the task? "
+            "If NOT: 'I do not see what I need. Show me.'\n"
+            "GATE 3: Has the task been completed? DEFAULT TO NOT CONFIRMED. "
+            "Only confirm if evidence is OBVIOUS. Describe briefly what you see. "
+            "If unsure: 'I cannot confirm completion. Show me.'"
         )
 
         try:
@@ -543,31 +663,75 @@ class SessionAudioBridge:
         if self._gemini_session is None:
             return
 
-        try:
-            async for event in self._gemini_session.receive_events():
-                self._drained_event_count += 1
-                await self._handle_gemini_event(event)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            log_event(
-                LOGGER,
-                logging.ERROR,
-                "gemini_live_event_drain_failed",
-                session_id=self.session_id,
-                detail=str(exc),
-            )
-            await self._forward_envelope(
-                {
-                    "type": "error",
-                    "sessionId": self.session_id,
-                    "payload": {
-                        "status": "error",
-                        "code": "gemini_receive_failed",
-                        "detail": "Gemini Live audio output stopped unexpectedly.",
-                    },
-                }
-            )
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                async for event in self._gemini_session.receive_events():
+                    self._drained_event_count += 1
+                    await self._handle_gemini_event(event)
+                return  # clean exit — session closed normally
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                is_last_attempt = attempt >= max_retries
+                log_event(
+                    LOGGER,
+                    logging.ERROR if is_last_attempt else logging.WARNING,
+                    "gemini_live_event_drain_failed",
+                    session_id=self.session_id,
+                    detail=str(exc),
+                    retry_attempt=attempt,
+                    will_retry=not is_last_attempt,
+                )
+
+                if is_last_attempt:
+                    await self._forward_envelope(
+                        {
+                            "type": "error",
+                            "sessionId": self.session_id,
+                            "payload": {
+                                "status": "error",
+                                "code": "gemini_receive_failed",
+                                "detail": "Gemini Live audio output stopped unexpectedly.",
+                            },
+                        }
+                    )
+                    return
+
+                # Retry: wait briefly, then try to re-create the session
+                await asyncio.sleep(1.0)
+                try:
+                    self._gemini_session = await self._gemini_session_manager.create_session(
+                        session_id=self.session_id,
+                        system_instruction=_SYSTEM_INSTRUCTION,
+                    )
+                    log_event(
+                        LOGGER,
+                        logging.INFO,
+                        "gemini_live_session_recreated",
+                        session_id=self.session_id,
+                        retry_attempt=attempt,
+                    )
+                except Exception as recreate_exc:
+                    log_event(
+                        LOGGER,
+                        logging.ERROR,
+                        "gemini_live_session_recreate_failed",
+                        session_id=self.session_id,
+                        detail=str(recreate_exc),
+                    )
+                    await self._forward_envelope(
+                        {
+                            "type": "error",
+                            "sessionId": self.session_id,
+                            "payload": {
+                                "status": "error",
+                                "code": "gemini_receive_failed",
+                                "detail": "Gemini Live audio output stopped unexpectedly.",
+                            },
+                        }
+                    )
+                    return
 
     async def _handle_gemini_event(self, event: GeminiLiveEvent) -> None:
         if event.event_type == "audio_output":

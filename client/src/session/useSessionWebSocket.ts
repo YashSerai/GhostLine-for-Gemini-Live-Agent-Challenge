@@ -40,6 +40,7 @@ function getDefaultManagerOptions(): WebSocketSessionManagerOptions {
 
 export interface UseSessionWebSocketOptions {
   clientConnectPayload?: Record<string, unknown>;
+  demoMode?: boolean;
 }
 
 export function useSessionWebSocket(options?: UseSessionWebSocketOptions) {
@@ -47,6 +48,12 @@ export function useSessionWebSocket(options?: UseSessionWebSocketOptions) {
 
   if (managerRef.current === null) {
     const managerOptions = getDefaultManagerOptions();
+    
+    // Override default demoMode if explicitly provided
+    if (options?.demoMode !== undefined && managerOptions.clientConnectPayload) {
+      managerOptions.clientConnectPayload.demoMode = options.demoMode;
+    }
+
     if (options?.clientConnectPayload) {
       managerOptions.clientConnectPayload = {
         ...managerOptions.clientConnectPayload,
@@ -80,6 +87,10 @@ export function useSessionWebSocket(options?: UseSessionWebSocketOptions) {
 
   const managerOptions = getDefaultManagerOptions();
 
+  const resolvedDemoMode = options?.demoMode !== undefined 
+    ? options.demoMode 
+    : Boolean(getDefaultManagerOptions().clientConnectPayload?.demoMode);
+
   return {
     ...snapshot,
     connect,
@@ -89,7 +100,7 @@ export function useSessionWebSocket(options?: UseSessionWebSocketOptions) {
     sendEnvelope,
     sendMessage,
     updateClientConnectPayload,
-    demoModeRequested: Boolean(managerOptions.clientConnectPayload?.demoMode),
+    demoModeRequested: resolvedDemoMode,
     sessionUrl: managerOptions.url,
   };
 }

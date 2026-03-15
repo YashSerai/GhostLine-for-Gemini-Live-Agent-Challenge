@@ -19,6 +19,7 @@ export interface MicrophoneBridgeState {
   permission: MicrophonePermissionState;
   startMicrophone: () => Promise<void>;
   stopMicrophone: (reason?: string) => Promise<void>;
+  getAnalyserNode: () => AnalyserNode | null;
 }
 
 interface UseMicrophoneBridgeOptions {
@@ -247,5 +248,6 @@ export function useMicrophoneBridge(
     permission,
     startMicrophone,
     stopMicrophone,
+    getAnalyserNode: () => captureControllerRef.current?.getAnalyserNode() ?? null,
   };
 }

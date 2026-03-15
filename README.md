@@ -1,8 +1,10 @@
 # Ghostline
 
-Ghostline is a live paranormal containment hotline built for the **Gemini Live Agent Challenge**.
+Ghostline is a live paranormal containment hotline built for the **Gemini Live Agent Challenge** (Live Agents Category).
 
 The experience is voice-first, camera-aware, interruptible, and cloud-hosted. A caller speaks with **The Archivist, Containment Desk**, who requests camera access in-call, scans the room with Gemini Vision to identify available objects, guides the caller through an AI-selected containment protocol, verifies progress using Gemini's visual analysis, provides AI-reasoned recovery when steps fail, and ends the session with a scored case report.
+
+The project is built entirely on the **Google GenAI SDK**, leverages **Gemini Live** via Vertex AI, and is fully deployed on **Google Cloud**.
 
 ![Architecture Diagram](docs/ARCHITECTURE_DIAGRAM.png)
 `HauntLens` appears in some UI and historical prompt text because it was the earlier working name. Ghostline is the primary product identity.
@@ -23,7 +25,7 @@ This is not a chatbot skin or a fake call simulation. The call path, interruptio
 ## Feature Summary
 
 - Live hotline call flow with **The Archivist, Containment Desk**
-- **Onboarding splash screen** with "Start the Hotline" CTA
+- **Dual-Mode Splash Screen** — Choose "Launch Demo Mode" (highly optimized path) or "Launch Beta Mode"
 - In-call camera and mic permission flow
 - **Gemini Vision room scan** — Gemini sees the caller's room and narrates observations
 - **AI-driven task selection** — room scan observations determine which containment tasks are assigned
@@ -32,7 +34,8 @@ This is not a chatbot skin or a fake call simulation. The call path, interruptio
 - Grounding HUD with task, path, verification, recovery, and turn-state visibility
 - **Gemini Vision verification** — captured frames analyzed by AI during "Ready to Verify" moments
 - **AI-reasoned recovery** — when verification fails, Gemini provides specific correction advice
-- **Adaptive dialogue** — Gemini generates contextual operator lines based on verification results
+- **Dynamic Sound Design** — Pre-baked ambient beds, sudden shrieks, and threshold creaks perfectly timed to task execution.
+- **Adaptive Cinematic Dialogue** — Gemini generates contextual operator lines based on verification results, leaning into panic-inducing, eerie, yet procedural containment lore.
 - Honest verification results: `confirmed`, `unconfirmed`, `user_confirmed_only`
 - Deterministic recovery ladders for verification failure and capability failure
 - **Containment score** — calculated from verification outcomes, displayed as a gradient progress bar
@@ -52,13 +55,13 @@ This is not a chatbot skin or a fake call simulation. The call path, interruptio
 
 ### Server
 
-- Python + FastAPI
+- **Python + FastAPI** (built strictly using the **Google GenAI SDK**)
 - WebSocket gateway and authoritative session state machine
 - Gemini Live session manager on Vertex AI
 - Gemini Vision engine for room scan analysis and verification frame analysis
 - AI-driven CapabilityProfile from room scan observations
 - AI-reasoned recovery directives on verification failure
-- Protocol planner, verification engine, recovery logic, flavor/diagnosis libraries, case report generation
+- Protocol planner, verification engine, cinematic flavor/diagnosis libraries, case report generation
 - Firestore persistence and structured logging
 
 ### Cloud

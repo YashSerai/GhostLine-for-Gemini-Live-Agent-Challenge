@@ -102,7 +102,7 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="camera_request",
             text=(
-                "Your voice is clear. Address the caller as Mr or Mrs followed by the name they "
+                "Address the caller as Mr or Mrs followed by the name they "
                 "just gave you. Then say: Now I need the room feed. I need deliberate permission. "
                 "Please press the Grant Camera Access button so I can see what we're working with."
             ),
@@ -114,6 +114,8 @@ class NormalModeOperatorGuidanceOrchestrator:
             text=(
                 "Good. Now stand in the center of the room and slowly pan the camera around "
                 "in a full circle. Take about five seconds for a 360-degree view. "
+                "Make sure the room is well-lit and the camera is steady. "
+                "I need a clear feed — if the image is too dark or blurry, I will ask you to try again. "
                 "I need to scan the full room before we begin containment."
             ),
         )
@@ -122,10 +124,11 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="calibration_acknowledged",
             text=(
-                "I can see the space. Our sensors are reading elevated residual activity "
-                "in this room. Spectral displacement concentrated near the threshold area. "
-                "This is consistent with a Class-2 residential haunting. "
-                "Containment protocol is warranted. Stay with me."
+                "Calibration sweep received. Our sensors are now processing the "
+                "spatial data. Initial readings show elevated residual activity "
+                "in this area. Spectral displacement concentrated near the "
+                "threshold zone. This is consistent with a Class-2 residential "
+                "haunting. Containment protocol is warranted. Stay with me."
             ),
         )
 
@@ -186,14 +189,10 @@ class NormalModeOperatorGuidanceOrchestrator:
         if state_name == "microphone_request" and self._last_state != "microphone_request":
             directives.append(self.build_microphone_request_guidance())
 
-        if state_name == "camera_request" and self._last_state == "microphone_request":
-            # Send mic_confirmed first, then camera_request.
-            # These are INSTRUCTIONS to Gemini — Gemini will follow them
-            # sequentially: ask for the name, wait for user response, then
-            # address them by name and request camera access.
+        if state_name == "name_request" and self._last_state != "name_request":
             directives.append(self.build_mic_confirmed_guidance())
-            directives.append(self.build_camera_request_guidance())
-        elif state_name == "camera_request" and self._last_state != "camera_request":
+
+        if state_name == "camera_request" and self._last_state != "camera_request":
             directives.append(self.build_camera_request_guidance())
 
         if state_name == "room_sweep" and self._last_state != "room_sweep":

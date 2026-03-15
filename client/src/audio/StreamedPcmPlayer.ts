@@ -17,6 +17,7 @@ export class StreamedPcmPlayer {
 
   private audioContext: AudioContext | null = null;
   private gainNode: GainNode | null = null;
+  private analyserNode: AnalyserNode | null = null;
   private nextStartTime = 0;
   private activeSources = new Set<AudioBufferSourceNode>();
   private state: StreamedPcmPlayerState = "idle";
@@ -113,10 +114,19 @@ export class StreamedPcmPlayer {
       this.gainNode = null;
     }
 
+    if (this.analyserNode !== null) {
+      this.analyserNode.disconnect();
+      this.analyserNode = null;
+    }
+
     if (this.audioContext !== null) {
       await this.audioContext.close();
       this.audioContext = null;
     }
+  }
+
+  getAnalyserNode(): AnalyserNode | null {
+    return this.analyserNode;
   }
 
   private ensureContext(): AudioContext {
@@ -131,7 +141,12 @@ export class StreamedPcmPlayer {
     if (this.gainNode === null) {
       this.gainNode = audioContext.createGain();
       this.gainNode.gain.value = 1;
-      this.gainNode.connect(audioContext.destination);
+      
+      this.analyserNode = audioContext.createAnalyser();
+      this.analyserNode.fftSize = 256;
+      
+      this.gainNode.connect(this.analyserNode);
+      this.analyserNode.connect(audioContext.destination);
     }
 
     return this.gainNode;

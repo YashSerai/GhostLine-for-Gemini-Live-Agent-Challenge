@@ -15,8 +15,12 @@ import type {
   SessionConnectionStatus,
 } from "../session/sessionTypes";
 
-const VISION_INTERVAL_MS = 1000; // 1fps for continuous task vision
+const VISION_INTERVAL_MS = 2000; // 0.5fps — balanced for interactive guidance without overloading Gemini
 const VISION_FRAME_QUALITY = 0.55; // Slightly lower quality for continuous streaming
+
+// Frame quality thresholds — skip frames that are too dark or too uniform
+const MIN_BRIGHTNESS = 15; // average luma 0-255; below this = black/covered lens
+const MIN_DETAIL = 0.05; // detail score 0-1; below this = completely uniform/blank
 
 export interface UseTaskVisionOptions {
   /** Whether task vision streaming is active */
@@ -32,6 +36,46 @@ export interface UseTaskVisionOptions {
     type: T,
     payload?: Record<string, unknown>,
   ) => boolean;
+}
+
+/**
+ * Quick frame quality check — samples an 8×6 grid of pixels to compute
+ * average brightness and a rough detail score without analyzing the full frame.
+ * Returns { brightness (0-255), detail (0-1) }.
+ */
+function quickFrameQuality(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+): { brightness: number; detail: number } {
+  const cols = 8;
+  const rows = 6;
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const d = imageData.data;
+  let lumaSum = 0;
+  let detailSum = 0;
+  let detailCount = 0;
+  let prevLuma: number | null = null;
+
+  for (let r = 0; r < rows; r++) {
+    const y = Math.min(h - 1, Math.round(((r + 0.5) * h) / rows));
+    prevLuma = null;
+    for (let c = 0; c < cols; c++) {
+      const x = Math.min(w - 1, Math.round(((c + 0.5) * w) / cols));
+      const off = (y * w + x) * 4;
+      const luma = d[off] * 0.2126 + d[off + 1] * 0.7152 + d[off + 2] * 0.0722;
+      lumaSum += luma;
+      if (prevLuma !== null) {
+        detailSum += Math.abs(luma - prevLuma);
+        detailCount++;
+      }
+      prevLuma = luma;
+    }
+  }
+
+  const brightness = lumaSum / (cols * rows);
+  const detail = detailCount > 0 ? Math.min(1, (detailSum / detailCount) / 96) : 0;
+  return { brightness, detail };
 }
 
 export function useTaskVision(options: UseTaskVisionOptions): void {
@@ -71,6 +115,12 @@ export function useTaskVision(options: UseTaskVisionOptions): void {
       canvas.width = w;
       canvas.height = h;
       ctx.drawImage(video, 0, 0, w, h);
+
+      // Quality gate: skip black, blank, or extremely blurry frames
+      const { brightness, detail } = quickFrameQuality(ctx, w, h);
+      if (brightness < MIN_BRIGHTNESS || detail < MIN_DETAIL) {
+        return; // frame too dark or too uniform — do not send
+      }
 
       const capturedAt = new Date().toISOString();
       const dataUrl = canvas.toDataURL("image/jpeg", VISION_FRAME_QUALITY);

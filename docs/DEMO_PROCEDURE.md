@@ -20,12 +20,10 @@ Use this for:
 
 The implemented fixed demo path is:
 
-1. `T1` Show Threshold
-2. `T2` Close Boundary
-3. `T3` Increase Illumination
-4. `T4` Stabilize Camera
-5. `T6` Clear Small Surface
-6. `T7` Speak Containment Phrase
+1. `T2` Close Boundary
+2. `T5` Place Paper on Flat Surface
+3. `T14` Describe the Sound
+4. `T7` Speak Containment Phrase
 
 The implemented controlled demo beats are:
 
@@ -39,8 +37,8 @@ The exact demo barge-in phrase is:
 
 The controlled near-failure is fixed to:
 
-- task `T3`
-- failure type `temporary_low_light`
+- task `T2`
+- failure type `boundary_not_sealed`
 
 ## Before You Record
 
@@ -88,16 +86,16 @@ cd "C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Li
 Use these exact URLs:
 
 - rehearsal mode: [http://127.0.0.1:5173/?demo=1&rehearsal=1](http://127.0.0.1:5173/?demo=1&rehearsal=1)
-- recording mode: [http://127.0.0.1:5173/?demo=1](http://127.0.0.1:5173/?demo=1)
+- recording mode: [http://127.0.0.1:5173/](http://127.0.0.1:5173/)
 
-Use rehearsal mode until all four rehearsal checks pass. Record from plain demo mode after that.
+Use rehearsal mode until all four rehearsal checks pass. Record from the standard root URL using the **Launch Demo Mode** button after that.
 
 ## Rehearsal Procedure
 
 1. Open rehearsal mode.
 2. Confirm the `Demo Rehearsal Harness` panel is visible.
 3. Confirm the fixed path check shows:
-   `T1 -> T2 -> T3 -> T4 -> T6 -> T7`
+   `T2 -> T5 -> T14 -> T7`
 4. Run the demo once without recording.
 5. Confirm the harness advances through:
    - fixed demo path
@@ -109,13 +107,13 @@ Use rehearsal mode until all four rehearsal checks pass. Record from plain demo 
 
 ## Recording Procedure
 
-1. Open plain demo mode at `?demo=1`.
+1. Open the app root at [http://127.0.0.1:5173/](http://127.0.0.1:5173/).
 2. Start screen recording with system audio and microphone narration if needed.
-3. Click `Start Call`.
+3. Click `Launch Demo Mode`.
 4. Follow the fixed path exactly.
-5. Use the scripted interruption phrase at the barge-in moment.
-6. Intentionally let the first verification on `T3` fail.
-7. Correct the lighting and rerun verification.
+5. Use the scripted interruption phrase at the barge-in moment (after the diagnosis interpretation line).
+6. Intentionally leave the door open on `T2` so the first verification fails honestly.
+7. Close the door fully and rerun verification.
 8. Finish the path through the final case report.
 9. Stop recording only after the report and closing line are visible.
 
@@ -140,16 +138,21 @@ If you need a short spoken line:
 
 `The doorway is in front of me.`
 
-### First Task
+### First Task (T2 Close Boundary) & Controlled Near-Failure
 
-When the Archivist assigns the first task:
+When the Archivist assigns the first task (`T2` Close Boundary):
 
-- do the task cleanly
-- keep the frame stable
+- point the camera at the open door
+- do not close it yet
 
-Use:
+Say: `Ready to Verify.`
 
-`Ready to Verify.`
+Let the first verification fail honestly (boundary not sealed).
+When the operator gives the recovery instruction:
+
+- close the door fully
+
+Say: `Ready to Verify.` again.
 
 ### Diagnosis Beat
 
@@ -161,28 +164,15 @@ Recommended answer:
 
 ### Controlled Barge-In
 
-Wait for the scripted diagnosis interpretation line, then interrupt with the exact phrase:
+Wait for the scripted diagnosis interpretation line (usually right after the Describe the Sound task), then interrupt with the exact phrase:
 
 `Archivist, wait. Say that again.`
 
 Do not paraphrase this during the recorded take.
 
-### Controlled Near-Failure
-
-At `T3 Increase Illumination`:
-
-- let the first verification happen while the frame is still slightly too dim
-- accept the unconfirmed result
-- follow the recovery line
-- brighten the light
-
-Then say:
-
-`Ready to Verify.`
-
 ### Final Closure
 
-Complete the remaining fixed tasks and let the report render.
+Complete the `T7` Containment Phrase and let the report render.
 
 ## Presenter Narration Script
 
@@ -218,13 +208,12 @@ Use this target pacing:
 
 - `0:00-0:20` Hook and framing
 - `0:20-0:40` Call pickup and in-call permissions
-- `0:40-1:05` Threshold and calibration
-- `1:05-1:35` First task and first verification
-- `1:35-1:55` Diagnosis beat
-- `1:55-2:20` Controlled barge-in
-- `2:20-2:55` Controlled near-failure and recovery
-- `2:55-3:20` Final anchor and closure
-- `3:20-3:45` Case report
+- `0:40-1:05` Room scan and calibration
+- `1:05-1:45` `T2` Close Boundary with controlled near-failure
+- `1:45-2:15` `T5` Anchor Paper
+- `2:15-2:45` `T14` Describe the Sound & Diagnosis/Barge-in
+- `2:45-3:15` `T7` Speak Containment Phrase
+- `3:15-3:45` Case report
 
 ## What To Watch During The Take
 
@@ -247,7 +236,7 @@ These are the main remaining risks in the current Prompt 43-48 implementation:
 - Demo reset is a client-driven clean teardown plus reload. It is fast and practical, but it is not a separate backend reset protocol.
 - The controlled barge-in depends on the exact phrase match:
   `Archivist, wait. Say that again.`
-- The controlled near-failure is hard-wired to task `T3`. If the demo drifts off the fixed path, that beat will not land correctly.
+- The controlled near-failure is hard-wired to task `T2`. If the demo drifts off the fixed path, that beat will not land correctly.
 - Live browser audio timing, device permissions, and speaker routing still matter. Rehearse on the exact machine and browser you will record with.
 - Firestore and Cloud Logging proof still require a live cloud-connected run. This document only covers the local demo procedure.
 
@@ -257,7 +246,7 @@ If the demo drifts:
 
 - use `Demo Reset`
 - reopen `?demo=1&rehearsal=1`
-- confirm the fixed path is still `T1 -> T2 -> T3 -> T4 -> T6 -> T7`
+- confirm the fixed path is still `T2 -> T5 -> T14 -> T7`
 
 If the barge-in does not register:
 
@@ -267,9 +256,9 @@ If the barge-in does not register:
 
 If the near-failure does not trigger:
 
-- make sure you are on `T3`
-- keep the first verification slightly dim
-- correct the light only after the first unconfirmed result
+- make sure you are on `T2` (Close Boundary)
+- keep the door visibly open on the first verify attempt
+- close the door only after the first unconfirmed result
 
 If the take feels slow:
 

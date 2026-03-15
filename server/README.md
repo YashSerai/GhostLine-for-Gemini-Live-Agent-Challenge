@@ -5,7 +5,7 @@ This directory contains the Ghostline FastAPI backend and the Gemini Live audio 
 Stack:
 - Python
 - FastAPI
-- Google GenAI SDK on Vertex AI
+- **Google GenAI SDK** interacting with Gemini Live on Vertex AI
 
 ## Local Commands
 

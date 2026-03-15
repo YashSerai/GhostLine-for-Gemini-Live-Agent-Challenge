@@ -18,16 +18,19 @@ class DemoNearFailureScript:
 
 
 DEMO_NEAR_FAILURE_SCRIPT: Final[DemoNearFailureScript] = DemoNearFailureScript(
-    task_id="T3",
-    failure_type="temporary_low_light",
+    task_id="T2",
+    failure_type="boundary_not_sealed",
     failure_block_reason=(
-        "The verification window stayed slightly too dim to confirm this demo step honestly."
+        "The verification window shows the boundary still appears open — "
+        "the door has not been fully closed."
     ),
     failure_reason=(
-        "The first demo verification intentionally catches a brief low-light miss so the recovery ladder is visible."
+        "The first demo verification intentionally catches the boundary "
+        "still unsealed so the recovery ladder is visible to judges."
     ),
     success_reason=(
-        "The corrected hold restored enough light and framing to confirm the illumination step cleanly."
+        "The corrected hold confirmed the door is now closed and the "
+        "boundary is sealed. Containment perimeter established."
     ),
 )
 

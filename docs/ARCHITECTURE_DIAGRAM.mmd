@@ -10,7 +10,7 @@ flowchart LR
     end
 
     subgraph cloudrun["Cloud Run Service"]
-        subgraph backend["FastAPI Backend"]
+        subgraph backend["FastAPI Backend (via Google GenAI SDK)"]
             gateway["WebSocket gateway\n/healthz /readyz\n/ops/proof/active-session"]
             bridge["Gemini Live audio bridge\nPCM input/output\nBarge-in flush\nContext directives"]
             state["Authoritative session state machine\nAI-observed affordances"]

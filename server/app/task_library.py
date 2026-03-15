@@ -177,8 +177,9 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         substitution_group="visibility_control",
         can_block_progression=True,
         baseline_prompt=(
-            "Hold the camera steady. Let me see the current light level "
-            "in the room — don't move."
+            "Show me where the light comes from — the lamp, the switch, "
+            "the overhead. I need to see the current light level before "
+            "you change it."
         ),
         baseline_lore=(
             "Low light is where they operate. You can't see them but they "
@@ -186,11 +187,12 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
             "for us and a hiding place for whatever is in there with you. "
             "Turn on every light you can reach. Now."
         ),
-        target_object="room scene",
+        target_object="light source or light switch",
         completion_check=(
             "The room should be VISIBLY brighter than the baseline frame. "
-            "Compare overall exposure and brightness. If the scene looks the same "
-            "darkness level, the lights were NOT turned on."
+            "Look for: a light source turned on, increased exposure, fewer "
+            "shadows. If the scene looks the same darkness level as the "
+            "baseline, the lights were NOT turned on."
         ),
     ),
     # Stability gate that makes the camera preview useful before verification
@@ -218,10 +220,11 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
             "disturbance or your hands shaking. Brace it. Give me a "
             "rock-solid feed."
         ),
-        target_object="stable frame",
+        target_object="camera feed showing room",
         completion_check=(
-            "The camera feed should be noticeably steadier — less blur, "
-            "consistent framing between consecutive frames."
+            "The camera feed should be noticeably steadier — less motion "
+            "blur, consistent framing, and the room should be clearly "
+            "readable. Compare sharpness between baseline and current frame."
         ),
     ),
     # Anchor step that introduces a clean physical reference point the hotline
@@ -301,9 +304,19 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="self_report",
         substitution_group="sealing_ritual",
         can_block_progression=True,
-        # Self-report — no visual baseline needed
-        baseline_prompt=None,
-        baseline_lore=None,
+        baseline_prompt=(
+            "Listen carefully. I need you to repeat a phrase after me. "
+            "Say it exactly as I say it — the cadence matters."
+        ),
+        baseline_lore=(
+            "This phrase is older than this hotline. Older than the agency. "
+            "It was documented in the Harrowgate case files from 1983 — every "
+            "operator who survived a Class-3 event used some variant of it. "
+            "The words disrupt the displacement harmonic. Say it wrong and "
+            "nothing happens. Say it right and you'll feel the room shift. "
+            "Repeat after me: 'This space is held. This line is sealed. "
+            "Nothing crosses that was not invited.'"
+        ),
         target_object=None,
         completion_check=None,
     ),
@@ -477,8 +490,18 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="self_report",
         substitution_group="pacing_fallback",
         can_block_progression=False,
-        baseline_prompt=None,
-        baseline_lore=None,
+        baseline_prompt=(
+            "I need you to count backward from ten. Slowly. "
+            "Out loud. Match my pace."
+        ),
+        baseline_lore=(
+            "Counting anchors your consciousness to the present. These "
+            "disturbances exploit dissociation — the moment your mind "
+            "drifts, the displacement field expands. Stay sharp. Count. "
+            "I had a caller last month who stopped counting at four. "
+            "Said they heard a second voice counting with them. "
+            "If that happens, do NOT stop. Keep going."
+        ),
         target_object=None,
         completion_check=None,
     ),
@@ -492,13 +515,27 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         story_function="diagnosis",
         operator_description=(
             "Ask what the sound resembled so diagnosis stays alive between major "
-            "containment steps."
+            "containment steps. Guide the caller to describe a high-pitched shriek."
         ),
         verification_class="self_report",
         substitution_group="diagnostic_probe",
         can_block_progression=False,
-        baseline_prompt=None,
-        baseline_lore=None,
+        baseline_prompt=(
+            "Before we go further — the sound that brought you to this "
+            "hotline. I need you to describe it precisely. Was it a low rumble? "
+            "A whisper? Or was it higher — like a scream? A shriek? "
+            "Tell me exactly what you heard."
+        ),
+        baseline_lore=(
+            "Sound profiles are how we classify what's in there with you. "
+            "A low scratching means boundary-phase — it's testing exits. "
+            "Whispering is a communication attempt — worse. "
+            "But if what you heard was a high-pitched shriek — that piercing, "
+            "inhuman scream that cuts through walls — that's a displacement "
+            "rupture. The entity isn't just present, it's agitated. It knows "
+            "the containment is working and it's fighting back. "
+            "That's actually a good sign for us. Describe what you heard."
+        ),
         target_object=None,
         completion_check=None,
     ),
@@ -517,8 +554,17 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         verification_class="self_report",
         substitution_group="diagnostic_probe",
         can_block_progression=False,
-        baseline_prompt=None,
-        baseline_lore=None,
+        baseline_prompt=(
+            "One more question. Where in the room was the feeling "
+            "strongest? Point the camera there if you can."
+        ),
+        baseline_lore=(
+            "Displacement doesn't spread evenly — it concentrates. Like a "
+            "stain soaking into fabric, the epicenter is always somewhere "
+            "specific. A corner, a closet, the space under a bed. "
+            "Wherever it felt strongest is where the field is anchored. "
+            "That's where it's coming from."
+        ),
         target_object=None,
         completion_check=None,
     ),

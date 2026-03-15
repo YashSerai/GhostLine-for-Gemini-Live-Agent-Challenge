@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMicrophoneBridge } from "./audio/useMicrophoneBridge";
 import { useOperatorAudioPlayback } from "./audio/useOperatorAudioPlayback";
+import { AudioSpectrogram } from "./hud/AudioSpectrogram";
 import { useCameraPreview } from "./media/useCameraPreview";
 import { useRoomScan } from "./media/useRoomScan";
 import { useTaskVision } from "./media/useTaskVision";
@@ -22,7 +23,7 @@ import {
   type VerificationTaskContext,
 } from "./verification/useReadyToVerifyFlow";
 import { useVerificationResultState } from "./verification/useVerificationResultState";
-import { buildDemoRehearsalHarnessSnapshot } from "./demo/rehearsalHarness";
+
 import type {
   SessionConnectionStatus,
 } from "./session/sessionTypes";
@@ -122,17 +123,20 @@ function getOperatorTurnTone(
   return connectionStatus === "connected" ? "idle" : connectionStatus;
 }
 
-function formatCaptureSummary(timestamp: string): string {
+function formatCaptureSummary(timestamp: string, callStartTime: number | null): string {
+  if (callStartTime === null) {
+    return "00:00";
+  }
+
   const parsedDate = new Date(timestamp);
   if (Number.isNaN(parsedDate.valueOf())) {
     return timestamp;
   }
 
-  return parsedDate.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  const elapsed = Math.max(0, Math.floor((parsedDate.valueOf() - callStartTime) / 1000));
+  const m = Math.floor(elapsed / 60).toString().padStart(2, "0");
+  const s = (elapsed % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
 }
 
 function getPermissionStage(
@@ -311,7 +315,7 @@ function getOperatorPlaceholder(
     !isMicStreaming &&
     microphonePermission === "granted"
   ) {
-    return "Camera and microphone are both approved in-call. Resume the microphone stream when you are ready to continue the session.";
+    return "Camera and microphone are both approved in-call. Resume the microphone stream when you are ready to continue the ";
   }
 
   const activeTaskInstruction = buildActiveTaskInstruction(activeTaskContext);
@@ -602,16 +606,6 @@ function buildArchiveReferences(caseId: string): string[] {
 }
 
 function App() {
-  const session = useSessionWebSocket();
-  const sessionState = useSessionState({
-    connectionStatus: session.status,
-    subscribeToEnvelopes: session.subscribeToEnvelopes,
-  });
-  const camera = useCameraPreview({
-    connectionStatus: session.status,
-    sendMessage: session.sendMessage,
-  });
-
   const [browserMicPermission, setBrowserMicPermission] = useState<string>("prompt");
 
   useEffect(() => {
@@ -626,37 +620,61 @@ function App() {
       .catch((err) => console.warn("Could not query microphone permission", err));
   }, []);
 
+  // --- Hooks ---
+  const [splashDemoMode, setSplashDemoMode] = useState<boolean>(parseRouteFlag("demo"));
+  const {
+    status,
+    sessionUrl,
+    demoModeRequested,
+    connect,
+    disconnect,
+    sendEnvelope,
+    sendMessage,
+    subscribeToEnvelopes,
+    updateClientConnectPayload,
+    lastError,
+  } = useSessionWebSocket({ demoMode: splashDemoMode });
+
+  const sessionState = useSessionState({
+    connectionStatus: status,
+    subscribeToEnvelopes: subscribeToEnvelopes,
+  });
+  const camera = useCameraPreview({
+    connectionStatus: status,
+    sendMessage: sendMessage,
+  });
+
   const microphone = useMicrophoneBridge({
-    connectionStatus: session.status,
-    sendMessage: session.sendMessage,
+    connectionStatus: status,
+    sendMessage: sendMessage,
   });
   const operatorAudio = useOperatorAudioPlayback({
-    connectionStatus: session.status,
+    connectionStatus: status,
     isMicStreaming: microphone.isStreaming,
-    subscribeToEnvelopes: session.subscribeToEnvelopes,
+    subscribeToEnvelopes: subscribeToEnvelopes,
   });
   const soundPlayback = useSoundPlayback({
     isOperatorSpeaking: operatorAudio.isSpeaking,
   });
   const transcriptLayer = useTranscriptLayer({
-    connectionStatus: session.status,
-    subscribeToEnvelopes: session.subscribeToEnvelopes,
+    connectionStatus: status,
+    subscribeToEnvelopes: subscribeToEnvelopes,
   });
   const taskControls = useTaskControls({
-    connectionStatus: session.status,
-    sendEnvelope: session.sendEnvelope,
-    subscribeToEnvelopes: session.subscribeToEnvelopes,
+    connectionStatus: status,
+    sendEnvelope: sendEnvelope,
+    subscribeToEnvelopes: subscribeToEnvelopes,
   });
   const verificationFlow = useReadyToVerifyFlow({
     cameraReady: camera.cameraReady,
     captureFrame: camera.captureFrame,
-    connectionStatus: session.status,
-    sendMessage: session.sendMessage,
-    subscribeToEnvelopes: session.subscribeToEnvelopes,
+    connectionStatus: status,
+    sendMessage: sendMessage,
+    subscribeToEnvelopes: subscribeToEnvelopes,
   });
   const verificationResult = useVerificationResultState({
-    connectionStatus: session.status,
-    subscribeToEnvelopes: session.subscribeToEnvelopes,
+    connectionStatus: status,
+    subscribeToEnvelopes: subscribeToEnvelopes,
   });
   const activeTaskContext =
     sessionState.currentTaskContext ??
@@ -665,7 +683,7 @@ function App() {
     verificationFlow.taskContext;
   const soundTriggerState = useSoundCueTriggers({
     cameraReady: camera.cameraReady,
-    connectionStatus: session.status,
+    connectionStatus: status,
     finalVerdict: sessionState.finalVerdict,
     playCue: soundPlayback.playCue,
     startAmbientBed: soundPlayback.startAmbientBed,
@@ -678,10 +696,10 @@ function App() {
   // Room scan: stream camera frames at ~1fps to Gemini during room_sweep
   const roomScan = useRoomScan({
     isScanning: sessionState.state === "room_sweep",
-    connectionStatus: session.status,
+    connectionStatus: status,
     videoRef: camera.videoRef,
     canvasRef: camera.canvasRef,
-    sendMessage: session.sendMessage,
+    sendMessage: sendMessage,
   });
 
   // Task vision: stream camera frames at ~1fps to Gemini during task execution
@@ -689,13 +707,21 @@ function App() {
     isActive:
       camera.cameraReady &&
       (sessionState.state === "task_assigned" || sessionState.state === "waiting_ready"),
-    connectionStatus: session.status,
+    connectionStatus: status,
     videoRef: camera.videoRef,
     canvasRef: camera.canvasRef,
-    sendMessage: session.sendMessage,
+    sendMessage: sendMessage,
   });
 
   const endTeardownHandledRef = useRef(false);
+  const subtitleListRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (subtitleListRef.current) {
+      subtitleListRef.current.scrollTop = subtitleListRef.current.scrollHeight;
+    }
+  }, [transcriptLayer.entries]);
+
   const [isDemoResetting, setIsDemoResetting] = useState(false);
   const [pendingStartCallIntro, setPendingStartCallIntro] = useState(false);
 
@@ -707,14 +733,14 @@ function App() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
-    if (session.status === "connected" && callStartTime === null) {
+    if (status === "connected" && callStartTime === null) {
       setCallStartTime(Date.now());
     }
-    if (session.status === "disconnected" || session.status === "idle") {
+    if (status === "disconnected" || status === "idle") {
       setCallStartTime(null);
       setElapsedSeconds(0);
     }
-  }, [session.status, callStartTime]);
+  }, [status, callStartTime]);
 
   useEffect(() => {
     if (callStartTime === null) return;
@@ -751,29 +777,24 @@ function App() {
     }
 
     endTeardownHandledRef.current = false;
-  }, [sessionState.state]);
+  }, [sessionState.state]  );
 
   const isTransportActive =
-    session.status === "connected" ||
-    session.status === "connecting" ||
-    session.status === "reconnecting";
-  const connectionLabel = statusLabels[session.status];
+    status === "connected" ||
+    status === "connecting" ||
+    status === "reconnecting";
+  const connectionLabel = statusLabels[status];
   const operatorTurnLabel = getOperatorTurnLabel(operatorAudio.turnState);
-  const operatorTurnTone = getOperatorTurnTone(operatorAudio.turnState, session.status);
+  const operatorTurnTone = getOperatorTurnTone(operatorAudio.turnState, status);
   const permissionStage = getPermissionStage(
-    session.status,
+    status,
     camera.permission,
     camera.cameraReady,
     microphone.permission,
     microphone.isStreaming,
   );
   const permissionStageLabel = formatPermissionStage(permissionStage);
-  const rehearsalModeRequested = parseRouteFlag("rehearsal");
-  const isDemoMode = sessionState.demoModeEnabled || session.demoModeRequested;
-  const showRehearsalHarness = isDemoMode && rehearsalModeRequested;
-  const rehearsalHarness = showRehearsalHarness
-    ? buildDemoRehearsalHarnessSnapshot(sessionState)
-    : null;
+  const isDemoMode = sessionState.demoModeEnabled || demoModeRequested;
   const permissionRequestCopy = getPermissionRequestCopy(
     permissionStage,
     microphone.isStreaming,
@@ -784,9 +805,9 @@ function App() {
     operatorAudio.error ??
     soundPlayback.error ??
     microphone.error ??
-    session.lastError;
+    lastError;
   const fallbackOperatorPlaceholder = getOperatorPlaceholder(
-    session.status,
+    status,
     permissionStage,
     camera.cameraReady,
     camera.captureFrameCount,
@@ -796,14 +817,15 @@ function App() {
     operatorAudio.isSpeaking,
     operatorAudio.turnState,
     operatorAudio.operatorAudioChunkCount,
-    session.lastError,
+
     camera.error,
     microphone.error,
     operatorAudio.error,
+    soundPlayback.error,
   );
   const waitingDialogue = useWaitingDialogue({
     active:
-      session.status === "connected" &&
+      status === "connected" &&
       permissionStage === "permissions_ready" &&
       sessionState.state !== "paused" &&
       microphone.isStreaming &&
@@ -821,7 +843,7 @@ function App() {
       camera.cameraReady && camera.captureFrameCount > 0
         ? "task_execution"
         : "frame_guidance",
-    demoModeEnabled: sessionState.demoModeEnabled || session.demoModeRequested,
+    demoModeEnabled: sessionState.demoModeEnabled || demoModeRequested,
     isOperatorSpeaking: operatorAudio.isSpeaking,
   });
   const verificationOperatorPlaceholder = verificationResult.awaitingDecision
@@ -881,7 +903,7 @@ function App() {
     cameraPermission: camera.permission,
     cameraReady: camera.cameraReady,
     captureFrameCount: camera.captureFrameCount,
-    connectionStatus: session.status,
+    connectionStatus: status,
     isMicStreaming: microphone.isStreaming,
     isOperatorSpeaking: operatorAudio.isSpeaking,
     lastCapturedFrame: camera.lastCapturedFrame,
@@ -903,7 +925,7 @@ function App() {
   });
 
 
-  const areTaskControlsVisible = session.status === "connected";
+  const areTaskControlsVisible = status === "connected";
   const areTaskControlsArmed =
     areTaskControlsVisible && permissionStage === "permissions_ready";
   const pauseActionIsResume = sessionState.allowedActions.canResume;
@@ -913,11 +935,11 @@ function App() {
     sessionState.state === "case_report" ||
     sessionState.caseReport !== null;
   const controlBarCopy = isDemoResetting
-    ? "Demo reset is tearing down media, transport, and staged session state now. The shell will reload into a fresh demo-ready take."
+    ? "Demo reset tearing down state. Shell will reload."
     : hasEndedReportView
-      ? "Session ended. Media activity was stopped cleanly and the report view is now staged below."
+      ? "Session ended. Media stopped and report staged below."
       : sessionState.state === "paused"
-        ? "Session paused. Resume the hotline to continue task flow. Verification, swap, and recovery stay blocked until the line is resumed."
+        ? "Session paused. Verification blocked until resumed."
         : buildVerificationControlCopy(
             isTransportActive,
             permissionStage,
@@ -963,51 +985,38 @@ function App() {
     !taskControls.endSessionPending &&
     !isDemoResetting;
   const subtitlePlaceholder = getTranscriptPlaceholder(
-    session.status,
+    status,
     microphone.isStreaming,
     transcriptLayer.hasEntries,
   );
   const verificationWindowActive =
     verificationFlow.phase !== "idle" && !verificationResult.hasResolvedResult;
   const canRequestCamera =
-    session.status === "connected" &&
+    status === "connected" &&
     !camera.cameraReady &&
     camera.permission !== "requesting";
   const canRequestMicrophone =
-    session.status === "connected" &&
+    status === "connected" &&
     !microphone.isStreaming &&
     microphone.permission !== "requesting";
 
   useEffect(() => {
-    if (!pendingStartCallIntro || session.status !== "connected") {
+    if (!pendingStartCallIntro || status !== "connected") {
       return;
     }
     setPendingStartCallIntro(false);
     void operatorAudio.preparePlayback();
-  }, [pendingStartCallIntro, session.status, microphone, operatorAudio]);
+  }, [pendingStartCallIntro, status, microphone, operatorAudio]);
   useEffect(() => {
-    if (session.status !== "connected" && session.status !== "connecting") {
+    if (status !== "connected" && status !== "connecting") {
       setPendingStartCallIntro(false);
     }
-  }, [session.status]);
-
+  }, [status]);
   let permissionActionLabel: string | null = null;
   let permissionAction: (() => void) | null = null;
   let permissionActionDisabled = false;
 
-  if (permissionStage === "request_camera" || permissionStage === "camera_denied") {
-    permissionActionLabel =
-      permissionStage === "camera_denied"
-        ? "Retry Camera Access"
-        : "Grant Camera Access";
-    permissionAction = () => {
-      void camera.requestCameraAccess();
-    };
-    permissionActionDisabled = !canRequestCamera;
-  } else if (
-    permissionStage === "request_microphone" ||
-    permissionStage === "microphone_denied"
-  ) {
+  if (permissionStage === "request_microphone" || permissionStage === "microphone_denied") {
     permissionActionLabel =
       permissionStage === "microphone_denied"
         ? "Retry Microphone Access"
@@ -1017,6 +1026,22 @@ function App() {
       void microphone.startMicrophone();
     };
     permissionActionDisabled = !canRequestMicrophone;
+  } else if (permissionStage === "microphone_requesting") {
+    permissionActionLabel = "Authorizing Microphone...";
+    permissionActionDisabled = true;
+  } else if (permissionStage === "request_camera" || permissionStage === "camera_denied") {
+    permissionActionLabel =
+      permissionStage === "camera_denied"
+        ? "Retry Camera Access"
+        : "Grant Camera Access";
+    permissionAction = () => {
+      sendMessage("client_event", { event: "camera_button_clicked" });
+      void camera.requestCameraAccess();
+    };
+    permissionActionDisabled = !canRequestCamera;
+  } else if (permissionStage === "camera_requesting") {
+    permissionActionLabel = "Authorizing Camera...";
+    permissionActionDisabled = true;
   } else if (
     permissionStage === "permissions_ready" &&
     microphone.permission === "granted" &&
@@ -1040,8 +1065,8 @@ function App() {
     playStartCallRing();
     transcriptLayer.resetTranscript();
     setPendingStartCallIntro(true);
-    session.updateClientConnectPayload({ browserMicPermission });
-    session.connect();
+    updateClientConnectPayload({ browserMicPermission });
+    connect();
   }
 
   async function handleDemoReset(): Promise<void> {
@@ -1053,7 +1078,7 @@ function App() {
 
     try {
       if (isTransportActive) {
-        session.sendMessage("stop", {
+        sendMessage("stop", {
           reason: "demo_reset",
         });
       }
@@ -1072,7 +1097,7 @@ function App() {
       await camera.stopCamera();
 
       window.setTimeout(() => {
-        session.disconnect();
+        disconnect();
         window.location.assign(window.location.href);
       }, 180);
     } catch {
@@ -1133,14 +1158,31 @@ function App() {
             A real-time voice &amp; camera experience powered by Gemini Live.
             The Archivist guides you through a containment protocol — step by step.
           </p>
-          <button
-            type="button"
-            className="splash-cta"
-            onClick={(e) => { e.stopPropagation(); setShowSplash(false); }}
-          >
-            Start the Hotline
-          </button>
-          <p className="splash-hint">Tap anywhere to continue</p>
+          <div className="splash-button-group">
+            <button
+              type="button"
+              className="splash-cta splash-cta-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSplashDemoMode(true);
+                setShowSplash(false);
+              }}
+            >
+              Launch Demo Mode
+            </button>
+            <button
+              type="button"
+              className="splash-cta splash-cta-secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSplashDemoMode(false);
+                setShowSplash(false);
+              }}
+            >
+              Launch Regular Mode (Beta)
+            </button>
+          </div>
+          <p className="splash-hint">Select a mode to continue</p>
         </div>
       </div>
     );
@@ -1151,14 +1193,14 @@ function App() {
       <header className="hero-panel panel">
         <div>
           <p className="eyebrow">Ghostline // Live Agent Shell</p>
-          <h1>Ghostline Containment Hotline</h1>
+          <h1>Ghostline Containment Unit</h1>
           <p className="hero-copy">
             The Archivist, Containment Desk leads the room step by step. Camera, calibration, verification, recovery, and report flow now stay visible beside the live call.
           </p>
         </div>
 
         <div className="hero-status">
-          <span className={`status-pill status-pill-${session.status}`}>
+          <span className={`status-pill status-pill-${status}`}>
             Transport {connectionLabel}
           </span>
           <span className={`status-pill ${camera.cameraReady ? "status-pill-connected" : ""}`}>
@@ -1190,453 +1232,461 @@ function App() {
       </header>
 
       <main className="stage-grid">
-        <section className="panel operator-panel" aria-label="Operator panel">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">Operator Panel</p>
-              <h2>The Archivist, Containment Desk</h2>
-            </div>
-            <span className={`panel-tag panel-tag-${operatorTurnTone}`}>
-              {operatorTurnLabel}
-            </span>
-          </div>
-
-          <div className="operator-script">
-            <p className="operator-label">Primary Operator Guidance</p>
-            <blockquote>{operatorPlaceholder}</blockquote>
-          </div>
-
-          <div
-            className={`permission-request-card permission-request-card-${permissionRequestCopy.tone}`}
-          >
-            <div className="permission-request-header">
+        <div className="left-column">
+          <section className="panel operator-panel" aria-label="Operator panel">
+            <div className="panel-heading">
               <div>
-                <p className="operator-label">In-Call Permission Flow</p>
-                <h3>{permissionRequestCopy.title}</h3>
+                <p className="panel-kicker">Operator Panel</p>
+                <h2>The Archivist, Containment Desk</h2>
               </div>
-              <span className="control-chip">{permissionStageLabel}</span>
+              <span className={`panel-tag panel-tag-${operatorTurnTone}`}>
+                {operatorTurnLabel}
+              </span>
             </div>
-            <p className="permission-request-copy">{permissionRequestCopy.body}</p>
-            <div className="permission-request-status">
-              <span className="control-chip">Camera {camera.permission}</span>
-              <span className="control-chip">Mic {microphone.permission}</span>
+
+            <div className="operator-script">
+              <p className="operator-label">Primary Operator Guidance</p>
+              <blockquote>{operatorPlaceholder}</blockquote>
             </div>
-            {permissionActionLabel && permissionAction ? (
-              <div className="permission-request-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={permissionActionDisabled}
-                  onClick={permissionAction}
-                >
-                  {permissionActionLabel}
-                </button>
-              </div>
-            ) : null}
-          </div>
 
-
-
-          {activeIssue ? (
-            <div className="issue-banner" role="status">
-              <p>{activeIssue}</p>
-            </div>
-          ) : null}
-
-          {verificationResult.hasResolvedResult ? (
-            <article
-              className={`control-status-card control-status-card-${verificationResult.cardTone} verification-result-card`}
-              role="status"
+            <div
+              className={`permission-request-card permission-request-card-${permissionRequestCopy.tone}`}
             >
-              <span className="control-status-title">{verificationResult.cardTitle}</span>
-              <p className="control-status-body">{verificationResult.cardBody}</p>
-              <div className="verification-result-meta">
-                <span className="control-chip">{verificationResult.statusLabel}</span>
-                {verificationResult.confidenceBand ? (
-                  <span className="control-chip">
-                    Confidence {verificationResult.confidenceBand}
-                  </span>
-                ) : null}
-                {verificationResult.currentPathMode ? (
-                  <span className="control-chip">
-                    Path {verificationResult.currentPathMode}
-                  </span>
-                ) : null}
-                {verificationResult.recoveryAttemptCount !== null &&
-                verificationResult.recoveryAttemptLimit !== null ? (
-                  <span className="control-chip">
-                    Recovery {verificationResult.recoveryAttemptCount}/
-                    {verificationResult.recoveryAttemptLimit}
-                  </span>
-                ) : null}
-                {isRecoveryRerouteRequired ? (
-                  <span className="control-chip">Reroute Required</span>
-                ) : null}
-                {verificationResult.isMock ? (
-                  <span className="control-chip">Mock Result</span>
-                ) : null}
-              </div>
-              {verificationResult.lastVerifiedItem ? (
-                <p className="verification-result-detail">
-                  <strong>Last Verified Item:</strong> {verificationResult.lastVerifiedItem}
-                </p>
-              ) : null}
-              {verificationResult.blockReason ? (
-                <p className="verification-result-detail">
-                  <strong>Block Reason:</strong> {verificationResult.blockReason}
-                </p>
-              ) : null}
-              {verificationResult.recoveryStep &&
-              verificationResult.status === "unconfirmed" ? (
-                <p className="verification-result-detail">
-                  <strong>
-                    {verificationResult.recoveryStepLabel ?? "Recovery"}:
-                  </strong>{" "}
-                  {verificationResult.recoveryStep}
-                </p>
-              ) : null}
-              {verificationResult.suggestedPathMode ? (
-                <p className="verification-result-detail">
-                  <strong>Suggested Path:</strong>{" "}
-                  {verificationResult.suggestedPathMode.replace(/_/g, " ")}
-                </p>
-              ) : null}
-              {verificationResult.substituteTaskSuggestion ? (
-                <p className="verification-result-detail">
-                  <strong>Suggested Substitute:</strong>{" "}
-                  {verificationResult.substituteTaskSuggestion.taskName} (
-                  {verificationResult.substituteTaskSuggestion.taskId})
-                </p>
-              ) : null}
-            </article>
-          ) : null}
-
-
-        </section>
-
-        <section className="panel camera-panel" aria-label="Camera preview area">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">Camera Preview</p>
-              <h2>Room Feed</h2>
-            </div>
-            <span className={`panel-tag ${camera.cameraReady ? "panel-tag-connected" : ""}`}>
-              {camera.cameraReady ? "Live" : camera.permission}
-            </span>
-          </div>
-
-          <div className={`camera-frame ${camera.cameraReady ? "camera-frame-live" : ""}`}>
-            <video
-              ref={camera.videoRef}
-              className="camera-preview-video"
-              autoPlay
-              playsInline
-              muted
-            />
-            {!camera.cameraReady ? (
-              <div className="frame-overlay">
-                <span>Preview activates once the operator requests it</span>
-                <small>Grant camera access in-call to begin the live feed.</small>
-              </div>
-            ) : null}
-          </div>
-          <canvas ref={camera.canvasRef} className="capture-canvas" aria-hidden="true" />
-
-          <div className="camera-capture-panel">
-
-            {camera.cameraReady &&
-            sessionState.state !== "task_assigned" &&
-            sessionState.state !== "waiting_ready" &&
-            sessionState.state !== "verifying" &&
-            sessionState.state !== "paused" &&
-            sessionState.state !== "ended" &&
-            sessionState.calibrationCapturedAt === null ? (
-              <div className="camera-action-row">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={taskControls.endSessionPending || verificationFlow.isBusy}
-                  onClick={() => {
-                    void camera.captureFrame("calibration");
-                  }}
-                >
-                  {camera.captureFrameCount > 0
-                    ? "Force Complete Scan (Fallback)"
-                    : "Force Complete Scan"}
-                </button>
-              </div>
-            ) : null}
-
-            {verificationWindowActive ? (
-              <article
-                className={`capture-preview-card verification-window-card verification-window-card-${verificationFlow.phase}`}
-              >
-                <div className="capture-preview-header">
-                  <strong>Ready to Verify Window</strong>
-                  <span>{getVerificationPhaseLabel(verificationFlow.phase)}</span>
+              <div className="permission-request-header">
+                <div>
+                  <p className="operator-label">In-Call Permission Flow</p>
+                  <h3>{permissionRequestCopy.title}</h3>
                 </div>
-                <p className="verification-window-body">
-                  {getVerificationWindowCopy(
-                    verificationFlow.phase,
-                    verificationFlow.expectedFrames,
-                    verificationFlow.localCapturedFrames,
-                  )}
-                </p>
+                <span className="control-chip">{permissionStageLabel}</span>
+              </div>
+              <p className="permission-request-copy">{permissionRequestCopy.body}</p>
+              <div className="permission-request-status">
+                <span className="control-chip">Camera {camera.permission}</span>
+                <span className="control-chip">Mic {microphone.permission}</span>
+              </div>
+              {permissionActionLabel && permissionAction ? (
+                <div className="permission-request-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={permissionActionDisabled}
+                    onClick={permissionAction}
+                  >
+                    {permissionActionLabel}
+                  </button>
+                </div>
+              ) : null}
+            </div>
 
+
+
+            {activeIssue ? (
+              <div className="issue-banner" role="status">
+                <p>{activeIssue}</p>
+              </div>
+            ) : null}
+
+            {verificationResult.hasResolvedResult ? (
+              <article
+                className={`control-status-card control-status-card-${verificationResult.cardTone} verification-result-card`}
+                role="status"
+              >
+                <span className="control-status-title">{verificationResult.cardTitle}</span>
+                <p className="control-status-body">{verificationResult.cardBody}</p>
+                <div className="verification-result-meta">
+                  <span className="control-chip">{verificationResult.statusLabel}</span>
+                  {verificationResult.confidenceBand ? (
+                    <span className="control-chip">
+                      Confidence {verificationResult.confidenceBand}
+                    </span>
+                  ) : null}
+                  {verificationResult.currentPathMode ? (
+                    <span className="control-chip">
+                      Path {verificationResult.currentPathMode}
+                    </span>
+                  ) : null}
+                  {verificationResult.recoveryAttemptCount !== null &&
+                  verificationResult.recoveryAttemptLimit !== null ? (
+                    <span className="control-chip">
+                      Recovery {verificationResult.recoveryAttemptCount}/
+                      {verificationResult.recoveryAttemptLimit}
+                    </span>
+                  ) : null}
+                  {isRecoveryRerouteRequired ? (
+                    <span className="control-chip">Reroute Required</span>
+                  ) : null}
+                  {verificationResult.isMock ? (
+                    <span className="control-chip">Mock Result</span>
+                  ) : null}
+                </div>
+                {verificationResult.lastVerifiedItem ? (
+                  <p className="verification-result-detail">
+                    <strong>Last Verified Item:</strong> {verificationResult.lastVerifiedItem}
+                  </p>
+                ) : null}
+                {verificationResult.blockReason ? (
+                  <p className="verification-result-detail">
+                    <strong>Block Reason:</strong> {verificationResult.blockReason}
+                  </p>
+                ) : null}
+                {verificationResult.recoveryStep &&
+                verificationResult.status === "unconfirmed" ? (
+                  <p className="verification-result-detail">
+                    <strong>
+                      {verificationResult.recoveryStepLabel ?? "Recovery"}:
+                    </strong>{" "}
+                    {verificationResult.recoveryStep}
+                  </p>
+                ) : null}
+                {verificationResult.suggestedPathMode ? (
+                  <p className="verification-result-detail">
+                    <strong>Suggested Path:</strong>{" "}
+                    {verificationResult.suggestedPathMode.replace(/_/g, " ")}
+                  </p>
+                ) : null}
+                {verificationResult.substituteTaskSuggestion ? (
+                  <p className="verification-result-detail">
+                    <strong>Suggested Substitute:</strong>{" "}
+                    {verificationResult.substituteTaskSuggestion.taskName} (
+                    {verificationResult.substituteTaskSuggestion.taskId})
+                  </p>
+                ) : null}
               </article>
             ) : null}
 
-          </div>
-          <section className="panel control-bar camera-control-deck" aria-label="Session controls">
-        <div className="control-bar-copy">
-          <div>
-            <p className="panel-kicker">Session Controls</p>
-            <h2>Session Controls</h2>
-            <p className="control-copy">{controlBarCopy}</p>
-          </div>
 
-          {taskControls.lastNotice ? (
-            <article
-              className={`control-status-card control-status-card-${taskControls.lastNotice.tone}`}
-            >
-              <span className="control-status-title">{taskControls.lastNotice.title}</span>
-              <p className="control-status-body">{taskControls.lastNotice.body}</p>
-            </article>
-          ) : null}
-
-          {isDemoMode ? (
-            <article className="control-status-card control-status-card-demo-support">
-              <span className="control-status-title">Demo Support</span>
-              <p className="control-status-body">
-                Readability mode is active for recording. Demo Reset clears transcript, media,
-                staged report state, and the current session take in one step.
-              </p>
-            </article>
-          ) : null}
-        </div>
-
-        <div className="control-actions">
-          {!isTransportActive ? (
-            <button
-              type="button"
-              className={`start-call-button start-call-button-${session.status}`}
-              disabled={isDemoResetting}
-              onClick={() => {
-                void handleStartCall();
-              }}
-            >
-              {session.status === "error" ? "Reconnect Call" : "Start Call"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={`start-call-button start-call-button-${session.status}`}
-              disabled
-            >
-              {session.status === "connected" ? "Call Live" : connectionLabel}
-            </button>
-          )}
-
-          {areTaskControlsVisible && !areTaskControlsArmed ? (
-            <span className="control-chip">
-              Controls arm after in-call camera and mic approval
-            </span>
-          ) : null}
-
-          {areTaskControlsArmed && activeTaskContext?.taskName ? (
-            <div className="active-task-card" style={{
-              background: "linear-gradient(135deg, rgba(139,92,246,0.15), rgba(59,130,246,0.1))",
-              border: "1px solid rgba(139,92,246,0.3)",
-              borderRadius: "12px",
-              padding: "16px",
-              marginBottom: "12px",
-              position: "relative" as const,
-              overflow: "hidden",
-            }}>
-              <div style={{
-                position: "absolute" as const,
-                top: 0, left: 0, right: 0, height: "3px",
-                background: sessionState.state === "verifying"
-                  ? "linear-gradient(90deg, #f59e0b, #ef4444)"
-                  : sessionState.state === "recovery_active"
-                  ? "linear-gradient(90deg, #ef4444, #dc2626)"
-                  : "linear-gradient(90deg, #8b5cf6, #3b82f6)",
-                animation: sessionState.state === "verifying" ? "pulse 1.5s ease-in-out infinite" : undefined,
-              }} />
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                <span style={{ fontSize: "16px" }}>
-                  {sessionState.state === "verifying" ? "🟠" :
-                   sessionState.state === "recovery_active" ? "🔴" :
-                   verificationResult.status === "confirmed" ? "✅" : "🔵"}
-                </span>
-                <strong style={{ fontSize: "14px", color: "#e2e8f0", letterSpacing: "0.02em" }}>
-                  {activeTaskContext.taskName}
-                </strong>
-              </div>
-              {activeTaskContext.operatorDescription ? (
-                <p style={{
-                  fontSize: "12px", color: "#94a3b8", margin: "0 0 12px 0",
-                  lineHeight: "1.5",
-                }}>
-                  {String(activeTaskContext.operatorDescription)}
-                </p>
-              ) : null}
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <span style={{
-                  fontSize: "11px", color: "#64748b",
-                  textTransform: "uppercase" as const,
-                  letterSpacing: "0.05em",
-                  fontWeight: 600,
-                }}>
-                  {sessionState.state === "verifying" ? "Verifying..." :
-                   sessionState.state === "recovery_active" ? "Retry Required" :
-                   verificationResult.status === "confirmed" ? "Complete" : "In Progress"}
-                </span>
-                <div style={{ flex: 1 }} />
-                <button
-                  type="button"
-                  className="secondary-button"
-                  style={{ fontSize: "11px", padding: "4px 12px" }}
-                  disabled={!canReadyToVerify}
-                  onClick={() => {
-                    taskControls.requestReadyToVerify({
-                      taskContext: activeTaskContext,
-                    });
-                  }}
-                >
-                  {taskControls.readyToVerifyPending ? "Verifying..." : "✓ Mark Complete"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {areTaskControlsArmed && !activeTaskContext?.taskName ? (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={!canReadyToVerify}
-              onClick={() => {
-                taskControls.requestReadyToVerify({
-                  taskContext: activeTaskContext,
-                });
-              }}
-            >
-              {taskControls.readyToVerifyPending ? "Sending Verify Request" : "Ready to Verify"}
-            </button>
-          ) : null}
-
-          {areTaskControlsArmed ? (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={!canSwapTask}
-              onClick={() => {
-                taskControls.requestSwapTask({
-                  taskContext: activeTaskContext,
-                });
-              }}
-            >
-              {taskControls.swapPending ? "Sending Swap Request" : "Can't Do This / Swap Task"}
-            </button>
-          ) : null}
-
-          {areTaskControlsArmed ? (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={!canPauseSession}
-              onClick={() => {
-                taskControls.requestPauseSession(!pauseActionIsResume);
-              }}
-            >
-              {taskControls.pausePending ? `Sending ${pauseButtonLabel}` : pauseButtonLabel}
-            </button>
-          ) : null}
-
-          {areTaskControlsVisible ? (
-            <button
-              type="button"
-              className="danger-button"
-              disabled={!canEndSession}
-              onClick={() => {
-                taskControls.requestEndSession();
-              }}
-            >
-              {taskControls.endSessionPending ? "Ending Session" : "End Session"}
-            </button>
-          ) : null}
-
-          {isDemoMode ? (
-            <button
-              type="button"
-              className="secondary-button demo-reset-button"
-              disabled={!canDemoReset}
-              onClick={() => {
-                void handleDemoReset();
-              }}
-            >
-              {isDemoResetting ? "Resetting Demo" : "Demo Reset"}
-            </button>
-          ) : null}
-        </div>
           </section>
-        </section>
 
-        <section className="panel subtitles-panel" aria-label="Subtitles area">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">Subtitles</p>
-              <h2>Conversation Transcript</h2>
+          <section className="panel subtitles-panel" aria-label="Subtitles area">
+            <div className="panel-heading">
+              <div>
+                <p className="panel-kicker">Subtitles</p>
+                <h2>Conversation Transcript</h2>
+              </div>
+              <span className="panel-tag">
+                {transcriptLayer.hasEntries
+                  ? `${transcriptLayer.entries.length} line${transcriptLayer.entries.length === 1 ? "" : "s"}`
+                  : "Always On"}
+              </span>
             </div>
-            <span className="panel-tag">
-              {transcriptLayer.hasEntries
-                ? `${transcriptLayer.entries.length} line${transcriptLayer.entries.length === 1 ? "" : "s"}`
-                : "Always On"}
-            </span>
-          </div>
 
-          <div className="subtitle-list">
-            {(() => {
-              const GUIDANCE_SOURCES = new Set([
-                "demo_mode",
-                "operator_guidance",
-                "session_guidance",
-                "verification_flow",
-                "recovery_ladder",
-              ]);
-              const spokenEntries = transcriptLayer.entries.filter(
-                (entry) => !GUIDANCE_SOURCES.has(entry.source),
-              );
-              return spokenEntries.length > 0 ? (
-                spokenEntries.map((entry) => (
-                <article
-                  className={`subtitle-row subtitle-row-${entry.speaker}`}
-                  key={entry.id}
-                >
-                  <div className="subtitle-meta">
-                    <div className="subtitle-meta-group">
-                      <span className="subtitle-speaker">
-                        {entry.speaker === "operator" ? "Operator" : "User"}
-                      </span>
-                      <span className={`subtitle-status subtitle-status-${entry.status}`}>
-                        {entry.status === "final" ? "Final" : "Live"}
+            <div className="subtitle-list" ref={subtitleListRef}>
+              {(() => {
+                const GUIDANCE_SOURCES = new Set([
+                  "demo_mode",
+                  "operator_guidance",
+                  "session_guidance",
+                  "verification_flow",
+                  "recovery_ladder",
+                ]);
+                const spokenEntries = transcriptLayer.entries.filter(
+                  (entry) => !GUIDANCE_SOURCES.has(entry.source),
+                );
+                return spokenEntries.length > 0 ? (
+                  spokenEntries.map((entry) => (
+                  <article
+                    className={`subtitle-row subtitle-row-${entry.speaker}`}
+                    key={entry.id}
+                  >
+                    <div className="subtitle-meta">
+                      <div className="subtitle-meta-group">
+                        <span className="subtitle-speaker">
+                          {entry.speaker === "operator" ? "Operator" : "User"}
+                        </span>
+                        <span className={`subtitle-status subtitle-status-${entry.status}`}>
+                          {entry.status === "final" ? "Final" : "Live"}
+                        </span>
+                      </div>
+                      <span className="subtitle-time">
+                        {formatCaptureSummary(entry.updatedAt, callStartTime)}
                       </span>
                     </div>
-                    <span className="subtitle-time">
-                      {formatCaptureSummary(entry.updatedAt)}
-                    </span>
-                  </div>
-                  <p className="subtitle-body">{entry.text}</p>
+                    <p className="subtitle-body">{entry.text}</p>
+                  </article>
+                ))
+              ) : (
+                <article className="subtitle-row subtitle-row-empty">
+                  {subtitlePlaceholder}
                 </article>
-              ))
-            ) : (
-              <article className="subtitle-row subtitle-row-empty">
-                {subtitlePlaceholder}
+              );
+              })()}
+            </div>
+          </section>
+        </div>
+
+        <div className="center-column">
+          <section className="panel camera-panel" aria-label="Camera preview area">
+            <div className="panel-heading">
+              <div>
+                <p className="panel-kicker">Camera Preview</p>
+                <h2>Room Feed</h2>
+              </div>
+              <span className={`panel-tag ${camera.cameraReady ? "panel-tag-connected" : ""}`}>
+                {camera.cameraReady ? "Live" : camera.permission}
+              </span>
+            </div>
+
+            <div className={`camera-frame ${camera.cameraReady ? "camera-frame-live" : ""}`}>
+              <video
+                ref={camera.videoRef}
+                className="camera-preview-video"
+                autoPlay
+                playsInline
+                muted
+              />
+              {!camera.cameraReady ? (
+                <div className="frame-overlay">
+                  <span>Preview activates once the operator requests it</span>
+                  <small>Grant camera access in-call to begin the live feed.</small>
+                </div>
+              ) : null}
+            </div>
+            <canvas ref={camera.canvasRef} className="capture-canvas" aria-hidden="true" />
+
+            <div className="camera-capture-panel">
+
+              {camera.cameraReady &&
+              sessionState.state !== "task_assigned" &&
+              sessionState.state !== "waiting_ready" &&
+              sessionState.state !== "verifying" &&
+              sessionState.state !== "paused" &&
+              sessionState.state !== "ended" &&
+              sessionState.calibrationCapturedAt === null ? (
+                <div className="camera-action-row">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={taskControls.endSessionPending || verificationFlow.isBusy}
+                    onClick={() => {
+                      void camera.captureFrame("calibration");
+                    }}
+                  >
+                    {camera.captureFrameCount > 0
+                      ? "Force Complete Scan (Fallback)"
+                      : "Force Complete Scan"}
+                  </button>
+                </div>
+              ) : null}
+
+              {verificationWindowActive ? (
+                <article
+                  className={`capture-preview-card verification-window-card verification-window-card-${verificationFlow.phase}`}
+                >
+                  <div className="capture-preview-header">
+                    <strong>Ready to Verify Window</strong>
+                    <span>{getVerificationPhaseLabel(verificationFlow.phase)}</span>
+                  </div>
+                  <p className="verification-window-body">
+                    {getVerificationWindowCopy(
+                      verificationFlow.phase,
+                      verificationFlow.expectedFrames,
+                      verificationFlow.localCapturedFrames,
+                    )}
+                  </p>
+
+                </article>
+              ) : null}
+
+            </div>
+            <section className="panel control-bar camera-control-deck" aria-label="Session controls">
+          <div className="control-bar-copy">
+            <div>
+              <p className="panel-kicker">Session Controls</p>
+              <h2>Session Controls</h2>
+              <p className="control-copy">{controlBarCopy}</p>
+            </div>
+
+            {taskControls.lastNotice ? (
+              <article
+                className={`control-status-card control-status-card-${taskControls.lastNotice.tone}`}
+              >
+                <span className="control-status-title">{taskControls.lastNotice.title}</span>
+                <p className="control-status-body">{taskControls.lastNotice.body}</p>
               </article>
-            );
-            })()}
+            ) : null}
+
+            {isDemoMode ? (
+              <article className="control-status-card control-status-card-demo-support">
+                <span className="control-status-title">Demo Support</span>
+                <p className="control-status-body">
+                  Readability mode is active. Demo Reset clears state and current take.
+                </p>
+              </article>
+            ) : null}
           </div>
-        </section>
+
+          <div className="control-actions">
+            {!isTransportActive ? (
+              <button
+                type="button"
+                className={`start-call-button start-call-button-${status}`}
+                disabled={isDemoResetting}
+                onClick={() => {
+                  void handleStartCall();
+                }}
+              >
+                {status === "error" ? "Reconnect Call" : "Start Call"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`start-call-button start-call-button-${status}`}
+                disabled
+              >
+                {status === "connected" ? "Call Live" : connectionLabel}
+              </button>
+            )}
+
+            {areTaskControlsVisible && !areTaskControlsArmed ? (
+              <span className="control-chip">
+                Controls arm after in-call camera and mic approval
+              </span>
+            ) : null}
+
+            {areTaskControlsArmed && activeTaskContext?.taskName ? (
+              <div className="active-task-card" style={{
+                background: "linear-gradient(135deg, rgba(139,92,246,0.15), rgba(59,130,246,0.1))",
+                border: "1px solid rgba(139,92,246,0.3)",
+                borderRadius: "12px",
+                padding: "16px",
+                marginBottom: "12px",
+                position: "relative" as const,
+                overflow: "hidden",
+              }}>
+                <div style={{
+                  position: "absolute" as const,
+                  top: 0, left: 0, right: 0, height: "3px",
+                  background: sessionState.state === "verifying"
+                    ? "linear-gradient(90deg, #f59e0b, #ef4444)"
+                    : sessionState.state === "recovery_active"
+                    ? "linear-gradient(90deg, #ef4444, #dc2626)"
+                    : "linear-gradient(90deg, #8b5cf6, #3b82f6)",
+                  animation: sessionState.state === "verifying" ? "pulse 1.5s ease-in-out infinite" : undefined,
+                }} />
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "16px" }}>
+                    {sessionState.state === "verifying" ? "🟠" :
+                     sessionState.state === "recovery_active" ? "🔴" :
+                     verificationResult.status === "confirmed" ? "✅" : "🔵"}
+                  </span>
+                  <strong style={{ fontSize: "14px", color: "#e2e8f0", letterSpacing: "0.02em" }}>
+                    {activeTaskContext.taskName}
+                  </strong>
+                </div>
+                {activeTaskContext.operatorDescription ? (
+                  <p style={{
+                    fontSize: "12px", color: "#94a3b8", margin: "0 0 12px 0",
+                    lineHeight: "1.5",
+                  }}>
+                    {String(activeTaskContext.operatorDescription)}
+                  </p>
+                ) : null}
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <span style={{
+                    fontSize: "11px", color: "#64748b",
+                    textTransform: "uppercase" as const,
+                    letterSpacing: "0.05em",
+                    fontWeight: 600,
+                  }}>
+                    {sessionState.state === "verifying" ? "Verifying..." :
+                     sessionState.state === "recovery_active" ? "Retry Required" :
+                     verificationResult.status === "confirmed" ? "Complete" : "In Progress"}
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    style={{ fontSize: "11px", padding: "4px 12px" }}
+                    disabled={!canReadyToVerify}
+                    onClick={() => {
+                      taskControls.requestReadyToVerify({
+                        taskContext: activeTaskContext,
+                      });
+                    }}
+                  >
+                    {taskControls.readyToVerifyPending ? "Verifying..." : "✓ Mark Complete"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {areTaskControlsArmed && !activeTaskContext?.taskName ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!canReadyToVerify}
+                onClick={() => {
+                  taskControls.requestReadyToVerify({
+                    taskContext: activeTaskContext,
+                  });
+                }}
+              >
+                {taskControls.readyToVerifyPending ? "Sending Verify Request" : "Ready to Verify"}
+              </button>
+            ) : null}
+
+            {areTaskControlsArmed ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!canSwapTask}
+                onClick={() => {
+                  taskControls.requestSwapTask({
+                    taskContext: activeTaskContext,
+                  });
+                }}
+              >
+                {taskControls.swapPending ? "Sending Swap Request" : "Can't Do This / Swap Task"}
+              </button>
+            ) : null}
+
+            {areTaskControlsArmed ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!canPauseSession}
+                onClick={() => {
+                  taskControls.requestPauseSession(!pauseActionIsResume);
+                }}
+              >
+                {taskControls.pausePending ? `Sending ${pauseButtonLabel}` : pauseButtonLabel}
+              </button>
+            ) : null}
+
+            {areTaskControlsVisible ? (
+              <button
+                type="button"
+                className="danger-button"
+                disabled={!canEndSession}
+                onClick={() => {
+                  taskControls.requestEndSession();
+                }}
+              >
+                {taskControls.endSessionPending ? "Ending Session" : "End Session"}
+              </button>
+            ) : null}
+
+            {isDemoMode ? (
+              <button
+                type="button"
+                className="secondary-button demo-reset-button"
+                disabled={!canDemoReset}
+                onClick={() => {
+                  void handleDemoReset();
+                }}
+              >
+                {isDemoResetting ? "Resetting Demo" : "Demo Reset"}
+              </button>
+            ) : null}
+          </div>
+            </section>
+          </section>
+
+          <AudioSpectrogram 
+            operatorAnalyser={operatorAudio.getAnalyserNode()} 
+            userAnalyser={microphone.getAnalyserNode()} 
+          />
+        </div>
 
         <aside className="panel hud-panel" aria-label="Grounding HUD area">
           <div className="panel-heading">
@@ -1644,7 +1694,7 @@ function App() {
               <p className="panel-kicker">Grounding HUD</p>
               <h2>Containment Surface</h2>
             </div>
-            <span className={`panel-tag panel-tag-${session.status}`}>{connectionLabel}</span>
+            <span className={`panel-tag panel-tag-${status}`}>{connectionLabel}</span>
           </div>
 
           <div className="hud-summary" aria-label="Grounding HUD summary">
@@ -1662,7 +1712,14 @@ function App() {
           </div>
 
           <div className="hud-sections">
-            {groundingHud.sections.map((section) => (
+            {groundingHud.sections.map((section) => {
+              if (
+                (section.title === "Initial Scan & Calibration" && sessionState.state !== "room_scan" && sessionState.state !== "idle" && sessionState.state !== "awaiting_permissions") ||
+                (section.title === "Active Containment Step" && sessionState.state === "idle")
+              ) {
+                return null;
+              }
+              return (
               <section className="hud-section" key={section.title}>
                 <h3>{section.title}</h3>
                 <dl className="hud-grid">
@@ -1676,69 +1733,11 @@ function App() {
                   ))}
                 </dl>
               </section>
-            ))}
+            );
+            })}
           </div>
         </aside>
       </main>
-      {showRehearsalHarness && rehearsalHarness ? (
-        <section className="panel rehearsal-panel" aria-label="Demo rehearsal harness">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">Demo Rehearsal Harness</p>
-              <h2>Fixed Path Checklist</h2>
-            </div>
-            <span className="panel-tag panel-tag-warning">Developer View</span>
-          </div>
-
-          <div className="rehearsal-summary-row">
-            <p className="control-copy">{rehearsalHarness.summary}</p>
-            <span className="control-chip">Use Demo Reset between takes</span>
-          </div>
-
-          <details className="rehearsal-details">
-            <summary>Open detailed rehearsal checks</summary>
-            <div className="rehearsal-grid">
-              <section className="rehearsal-card">
-                <p className="meta-label">Key Checks</p>
-                <div className="rehearsal-check-list">
-                  {rehearsalHarness.checks.map((check) => (
-                    <article
-                      className={`rehearsal-check rehearsal-check-${check.status}`}
-                      key={check.label}
-                    >
-                      <div className="rehearsal-check-header">
-                        <strong>{check.label}</strong>
-                        <span className="control-chip">{check.status}</span>
-                      </div>
-                      <p className="control-status-body">{check.detail}</p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rehearsal-card">
-                <p className="meta-label">Fixed Task Path</p>
-                <div className="rehearsal-task-list">
-                  {rehearsalHarness.taskProgress.map((task) => (
-                    <article
-                      className={`rehearsal-task rehearsal-task-${task.status}`}
-                      key={task.taskId}
-                    >
-                      <div className="rehearsal-task-header">
-                        <strong>
-                          {task.taskName} <span>({task.taskId})</span>
-                        </strong>
-                        <span className="control-chip">{task.status}</span>
-                      </div>
-                      <p className="control-status-body">{task.detail}</p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            </div>
-          </details>
-        </section>
-      ) : null}
       {sessionState.caseReport ? (
         <section className={`panel case-report-panel case-report-panel-${sessionState.caseReport.closingTemplate.tone}`} aria-label="Case report">
           <div className="panel-heading">

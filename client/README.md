@@ -14,4 +14,4 @@ npm install
 npm run dev
 ```
 
-This workspace intentionally contains only a minimal starter app for Prompt 2.
+This workspace contains the Ghostline frontend interface, including the Grounding HUD, WebRTC media capture logic, and the React UI.

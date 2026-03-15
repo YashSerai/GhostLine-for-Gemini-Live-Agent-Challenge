@@ -33,6 +33,7 @@ SessionStateName = Literal[
     "call_connected",
     "consent",
     "microphone_request",
+    "name_request",
     "camera_request",
     "room_sweep",
     "calibration",
@@ -71,7 +72,8 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "init": ("call_connected", "ended"),
     "call_connected": ("consent", "ended"),
     "consent": ("microphone_request", "ended"),
-    "microphone_request": ("camera_request", "paused", "ended"),
+    "microphone_request": ("name_request", "paused", "ended"),
+    "name_request": ("camera_request", "paused", "ended"),
     "camera_request": ("room_sweep", "paused", "ended"),
     "room_sweep": ("camera_request", "task_assigned", "waiting_ready", "paused", "ended"),
     "calibration": ("camera_request", "task_assigned", "paused", "ended"),
@@ -83,6 +85,7 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "swap_pending": ("camera_request", "task_assigned", "waiting_ready", "diagnosis_beat", "completed", "case_report", "paused", "ended"),
     "paused": (
         "microphone_request",
+        "name_request",
         "camera_request",
         "room_sweep",
         "calibration",
@@ -106,6 +109,7 @@ _ALLOWED_SWAP_STATES = frozenset({"task_assigned", "waiting_ready", "recovery_ac
 _ALLOWED_PAUSE_STATES = frozenset(
     {
         "microphone_request",
+        "name_request",
         "camera_request",
         "room_sweep",
         "calibration",
@@ -224,9 +228,7 @@ class SessionStateMachine:
             self.calibration_capture_count = 0
 
         if self.state != "paused":
-            if self.camera_ready and self.state == "camera_request":
-                self._transition("room_sweep", "camera_ready")
-            elif not self.camera_ready and self.state in {
+            if not self.camera_ready and self.state in {
                 "room_sweep",
                 "calibration",
                 "task_assigned",
@@ -238,6 +240,20 @@ class SessionStateMachine:
             }:
                 self._transition("camera_request", "camera_lost")
 
+        await self.emit_snapshot()
+
+    async def handle_client_event(self, payload: dict[str, Any]) -> None:
+        event = payload.get("event")
+        if event == "camera_button_clicked" and self.state == "camera_request":
+            # The user explicitly clicked Grant Camera
+            # Transition to room_sweep if camera properties are ready,
+            # or wait for the system to catch up if they aren't
+            if self.camera_ready:
+                self._transition("room_sweep", "camera_ready")
+            else:
+                # Still waiting for handle_camera_status to be called with granted payload
+                pass
+        
         await self.emit_snapshot()
 
     def configure_demo_mode(self, enabled: bool) -> None:
@@ -263,7 +279,7 @@ class SessionStateMachine:
         self.microphone_streaming = payload.get("streaming") is True
 
         if self.microphone_streaming and self.state == "microphone_request":
-            self._transition("camera_request", "microphone_ready")
+            self._transition("name_request", "microphone_ready")
 
         if (
             self.microphone_streaming
@@ -540,6 +556,9 @@ class SessionStateMachine:
             self.turn_status = "listening"
         elif speaker == "operator":
             self.turn_status = "speaking"
+
+        if speaker == "user" and self.state == "name_request":
+            self._transition("camera_request", "name_provided")
 
         self.transcript_references.append(
             {

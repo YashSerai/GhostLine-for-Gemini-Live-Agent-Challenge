@@ -68,19 +68,16 @@ It should avoid fragile optional-object dependencies unless they are intentional
 
 This is the safest baseline path:
 
-1. **Show Threshold**
-2. **Close Boundary** or stable boundary acknowledgment
-3. **Increase Illumination**
-4. **Stabilize Camera / Hold Still**
-5. **Paper Anchor** or **Clear-Surface Anchor**
-6. **Containment Phrase / Seal**
+1. **Close Boundary**
+2. **Place Paper on Flat Surface**
+3. **Describe the Sound**
+4. **Speak Containment Phrase**
 
 This path is preferred because it relies on:
-- threshold
-- light
-- stillness
+- threshold/door
 - flat surface
 - speech
+- diagnostic interaction
 
 These are broadly available and easy to stage on camera.
 
@@ -140,12 +137,11 @@ The full demo should target roughly **3:40–3:55** total runtime.
 - **0:00–0:20** Hook and product framing
 - **0:20–0:40** Call pickup + camera request
 - **0:40–1:05** Room scan + calibration + HUD visible
-- **1:05–1:35** First task and first verification
-- **1:35–1:55** Diagnosis beat
-- **1:55–2:20** Barge-in moment
-- **2:20–2:55** Controlled failure + recovery
-- **2:55–3:20** Final anchor / phrase / closure
-- **3:20–3:45** Case report
+- **1:05–1:45** Close Boundary with controlled near-failure
+- **1:45–2:15** Anchor Paper
+- **2:15–2:45** Describe the Sound & Diagnosis/Barge-in
+- **2:45–3:15** Speak Containment Phrase
+- **3:15–3:45** Case report
 - **3:45–3:55** Quick architecture / cloud reminder if needed
 
 Stay under 4 minutes.
@@ -252,6 +248,7 @@ Demo Mode must include one controlled failure moment.
 
 This should be a **safe, repeatable, believable** failure such as:
 
+- boundary not sealed (door left open intentionally)
 - slight blur
 - slight framing issue
 - low-light moment

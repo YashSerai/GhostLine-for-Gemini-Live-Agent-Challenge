@@ -24,74 +24,142 @@ LOGGER = logging.getLogger("ghostline.backend.gemini_verification")
 
 _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
     "T1": (
-        "VERIFICATION CHECK: The caller says they showed the THRESHOLD — a doorway "
-        "or room boundary. Look at this frame carefully. Do you ACTUALLY see a "
-        "doorway, door frame, or boundary edge? If YES, confirm it. If NO, "
-        "challenge the caller: 'I do not see a threshold in the frame. Show me.'"
+        "VERIFICATION — 3-GATE CHECK for 'Show Threshold':\n"
+        "GATE 1: Is this frame clear enough to analyze? If dark/blurry/shaky: "
+        "'I cannot verify — frame is not readable.'\n"
+        "GATE 2: Do you see a doorway, door frame, or room boundary edge? "
+        "If NOT visible: 'I do not see a threshold. Show me.'\n"
+        "GATE 3: Is the threshold CLEARLY defined in frame? Only confirm if "
+        "OBVIOUS: 'Confirmed. Threshold is visible.' Otherwise: 'Not confirmed.'"
     ),
     "T2": (
-        "VERIFICATION CHECK: The caller says they CLOSED THE BOUNDARY. Look at "
-        "this frame. Do you ACTUALLY see a closed door or sealed boundary? If YES, "
-        "confirm it. If NO, challenge: 'I do not see a closed boundary. Show me.'"
+        "VERIFICATION — 3-GATE CHECK for 'Close Boundary':\n"
+        "GATE 1 — FRAME QUALITY: Is this frame clear enough to analyze? If "
+        "dark, blurry, or shaky: respond ONLY with 'I cannot verify — frame "
+        "is not readable.' STOP.\n"
+        "GATE 2 — OBJECT PRESENCE: Do you see a door in this frame? Look for "
+        "a door, door frame, or doorway. If you cannot see ANY door: respond "
+        "'I do not see a door. Point the camera at the door.' STOP.\n"
+        "GATE 3 — COMPLETION EVIDENCE: Compare this frame to your BASELINE "
+        "memory. In the baseline the door was OPEN — you should have seen a "
+        "gap, light from the other side, or an open doorway. NOW, is the door "
+        "CLOSED? Look for: the gap is gone, door flush against the frame, no "
+        "light leaking through. If the door still shows a gap or open space: "
+        "'The door still appears open. Close it fully.' "
+        "ONLY say 'CONFIRMED' if the door is OBVIOUSLY, VISIBLY closed and "
+        "flush with its frame."
     ),
     "T3": (
-        "VERIFICATION CHECK: The caller says they INCREASED ILLUMINATION. Look at "
-        "this frame. Does the room appear well-lit? Is a light source visibly on? "
-        "If YES, confirm. If the room looks dim, challenge: 'The room still looks "
-        "dim. Turn on a light and show me.'"
+        "VERIFICATION — 3-GATE CHECK for 'Increase Illumination':\n"
+        "GATE 1: Is this frame clear enough to analyze? If dark/blurry/shaky: "
+        "'I cannot verify — frame is not readable.'\n"
+        "GATE 2: Do you see a light source or light switch? If NOT visible: "
+        "'I do not see a light source. Show me where the light is.'\n"
+        "GATE 3: Is the room VISIBLY brighter than baseline? Look for: light on, "
+        "increased exposure, fewer shadows. If same darkness: "
+        "'Room still looks dim. Turn on a light.' Only confirm if OBVIOUSLY brighter."
     ),
     "T4": (
-        "VERIFICATION CHECK: The caller says they STABILIZED THE CAMERA. Look at "
-        "this frame. Is the image sharp and steady? If YES, confirm. If it looks "
-        "blurry or shaky, say: 'The image is still unstable. Hold the camera steady.'"
+        "VERIFICATION — 3-GATE CHECK for 'Stabilize Camera':\n"
+        "GATE 1: Is the frame sharp and clear? If still blurry/shaky: "
+        "'The image is still unstable. Hold the camera steady.'\n"
+        "GATE 2: Can you see a clear room scene? If NOT: "
+        "'I cannot see the room clearly. Steady the camera.'\n"
+        "GATE 3: Is the image NOTICEABLY steadier than baseline? "
+        "Only confirm if sharp and stable."
     ),
     "T5": (
-        "VERIFICATION CHECK: The caller says they PLACED PAPER ON A SURFACE. Look "
-        "at this frame. Can you see a sheet of paper on a flat surface? If YES, "
-        "confirm. If NO, challenge: 'I do not see paper on a surface. Show me.'"
+        "VERIFICATION — 3-GATE CHECK for 'Place Paper on Surface':\n"
+        "GATE 1 — FRAME QUALITY: Is this frame clear enough to analyze? If "
+        "dark, blurry, or obstructed: respond ONLY with 'I cannot verify — "
+        "frame is not readable.' STOP.\n"
+        "GATE 2 — OBJECT PRESENCE: Do you see a flat surface (table, desk, "
+        "floor)? If NOT visible: respond 'I do not see a surface. Show me "
+        "the surface.' STOP.\n"
+        "GATE 3 — COMPLETION EVIDENCE: Compare this frame to your BASELINE "
+        "memory. In the baseline the surface was EMPTY. NOW, look for a "
+        "white or light-colored rectangular shape (paper/sheet) ON the "
+        "surface. It should be flat, roughly A4/letter size. If the surface "
+        "still looks empty with no paper: 'I see no paper on that surface. "
+        "Place it and show me.' "
+        "ONLY say 'CONFIRMED' if you can CLEARLY see paper sitting on the "
+        "surface that was not there before."
     ),
     "T6": (
-        "VERIFICATION CHECK: The caller says they CLEARED A SMALL SURFACE. Look "
-        "at this frame. Can you see a cleared area? If YES, confirm. If NO, "
-        "challenge: 'I do not see a cleared surface. Show me the area.'"
+        "VERIFICATION — 3-GATE CHECK for 'Clear Small Surface':\n"
+        "GATE 1: Is this frame clear enough? If dark/blurry: "
+        "'I cannot verify — frame is not readable.'\n"
+        "GATE 2: Do you see the surface area? If NOT: 'Show me the surface.'\n"
+        "GATE 3: Is the surface VISIBLY cleared compared to baseline? "
+        "If still cluttered: 'Surface still has items. Not cleared.' "
+        "Only confirm if OBVIOUSLY clear."
     ),
     "T7": (
         "VERIFICATION CHECK: The caller was asked to SPEAK A CONTAINMENT PHRASE. "
-        "This is audio-only. If you heard them speak a clear phrase, confirm it. "
-        "If you heard nothing clear, say: 'I did not hear a clear phrase. Say it again.'"
+        "This is audio-only — no visual check needed. If you heard them speak a "
+        "clear phrase, confirm it. If you heard nothing or it was unclear: "
+        "'I did not hear a clear phrase. Say it again.'"
     ),
     "T8": (
-        "VERIFICATION CHECK: The caller says they DREW A MARK on paper. Look at "
-        "this frame. Can you see a mark, symbol, or line on paper? If YES, confirm. "
-        "If NO, challenge: 'I do not see a mark. Show me the paper.'"
+        "VERIFICATION — 3-GATE CHECK for 'Draw Simple Mark':\n"
+        "GATE 1: Is this frame clear enough? If dark/blurry: "
+        "'I cannot verify — frame is not readable.'\n"
+        "GATE 2: Do you see paper or card? If NOT: 'Show me the paper.'\n"
+        "GATE 3: Does the paper NOW show a drawn mark that was NOT there "
+        "in baseline? If still blank: 'I see no mark. Draw one and show me.' "
+        "Only confirm if mark is OBVIOUSLY visible."
     ),
     "T9": (
-        "VERIFICATION CHECK: The caller says they showed a REFLECTIVE SURFACE. "
-        "Look at this frame. Can you see a mirror, glass, or reflective surface? "
-        "If YES, confirm. If NO, challenge: 'I do not see a reflective surface. Show me.'"
+        "VERIFICATION — 3-GATE CHECK for 'Show Reflective Surface':\n"
+        "GATE 1: Is this frame clear enough? If dark/blurry: "
+        "'I cannot verify — frame is not readable.'\n"
+        "GATE 2: Do you see a mirror, glass, or reflective surface? "
+        "If NOT: 'I do not see a reflective surface. Show me.'\n"
+        "GATE 3: Is a reflective surface CLEARLY held toward the camera? "
+        "Only confirm if OBVIOUSLY visible."
     ),
     "T10": (
-        "VERIFICATION CHECK: The caller says they held up a VIVID OBJECT. Look at "
-        "this frame. Can you see a brightly colored object? If YES, confirm. "
-        "If NO, challenge: 'I do not see a vivid object. Hold it up clearly.'"
+        "VERIFICATION — 3-GATE CHECK for 'Hold Up Vivid Object':\n"
+        "GATE 1: Is this frame clear enough? If dark/blurry: "
+        "'I cannot verify — frame is not readable.'\n"
+        "GATE 2: Do you see the caller's hands or the area in frame? "
+        "If NOT: 'I cannot see the area. Show me.'\n"
+        "GATE 3: Is a brightly colored object NOW held in frame where "
+        "there was NOT one in baseline? If nothing new: "
+        "'I do not see a vivid object. Hold it up.' Only confirm if OBVIOUS."
     ),
     "T11": (
-        "VERIFICATION CHECK: The caller says they did a WATER RELEASE. Look at "
-        "this frame. Can you see running water or a sink area? If YES, confirm. "
-        "If NO, challenge: 'I do not see water. Show me the sink.'"
+        "VERIFICATION — 3-GATE CHECK for 'Water Sink Release':\n"
+        "GATE 1: Is this frame clear enough? If dark/blurry: "
+        "'I cannot verify — frame is not readable.'\n"
+        "GATE 2: Do you see a sink or water source? "
+        "If NOT: 'I do not see a water source. Show me.'\n"
+        "GATE 3: Is water VISIBLY running or being poured compared to "
+        "baseline? If dry: 'I see no water flow. Show me.' "
+        "Only confirm if water motion is OBVIOUS."
     ),
     "T12": (
-        "VERIFICATION CHECK: The caller says they placed a SALT LINE. Look at "
-        "this frame. Can you see salt or a white line near a boundary? If YES, "
-        "confirm. If NO, challenge: 'I do not see a salt line. Show me.'"
+        "VERIFICATION — 3-GATE CHECK for 'Salt Line':\n"
+        "GATE 1: Is this frame clear enough? If dark/blurry: "
+        "'I cannot verify — frame is not readable.'\n"
+        "GATE 2: Do you see the floor near the boundary? "
+        "If NOT: 'Show me the floor near the boundary.'\n"
+        "GATE 3: Is salt VISIBLY on the floor that was NOT there in baseline? "
+        "If floor looks the same: 'I see no salt. Show me.' "
+        "Only confirm if salt is OBVIOUSLY visible."
     ),
 }
 
 _DEFAULT_VERIFICATION_PROMPT = (
-    "VERIFICATION CHECK: The caller says they completed a containment task. "
-    "Look at this frame carefully. Do you see evidence of any deliberate action? "
-    "If YES, describe and confirm it. If NO, challenge the caller: "
-    "'I do not see the task completed. Show me what you did.' Do NOT bluff."
+    "VERIFICATION — DEFAULT 3-GATE CHECK:\n"
+    "GATE 1: Is this frame clear enough to analyze? If dark, blurry, shaky, "
+    "or obstructed: 'I cannot verify — the frame is not readable.'\n"
+    "GATE 2: Can you see the area relevant to the task? If NOT: "
+    "'I cannot see what I need. Show me.'\n"
+    "GATE 3: Do you see evidence that a deliberate action was completed? "
+    "DEFAULT TO NOT CONFIRMED. Only confirm if the evidence is OBVIOUS and "
+    "UNMISTAKABLE. If unsure: 'I do not see the task completed. Show me.' "
+    "NEVER bluff. NEVER assume."
 )
 
 
@@ -101,10 +169,13 @@ _DEFAULT_VERIFICATION_PROMPT = (
 
 ROOM_SCAN_ANALYSIS_PROMPT = (
     "ROOM_ANALYSIS: You are scanning the caller's room through their camera. "
-    "Describe ONLY what you ACTUALLY see in the frame — do NOT assume or invent "
-    "objects. Keep it brief and in character as The Archivist. "
-    "After observing the room, deliver a short atmospheric assessment: our sensors "
-    "have picked up residual activity in this space. Stay procedural and calm."
+    "FIRST assess frame quality — if the frame is dark, blurry, shaky, or "
+    "unclear for ANY reason, say so immediately: 'The feed is not usable. "
+    "Check your camera.' Do NOT describe a room you cannot see.\n"
+    "If the frame IS clear: describe ONLY what you ACTUALLY see — do NOT "
+    "assume or invent objects. Keep it brief and in character as The Archivist. "
+    "After observing the room, deliver a short atmospheric assessment. "
+    "Stay procedural and calm."
 )
 
 
@@ -181,6 +252,21 @@ class GeminiVisionVerificationEngine:
             return False
 
         if not image_bytes:
+            return False
+
+        # Server-side brightness check — reject black/very dark frames
+        _MIN_SIZE = 800
+        _MIN_BRIGHTNESS = 20
+        if len(image_bytes) < _MIN_SIZE:
+            log_event(LOGGER, logging.INFO, "frame_for_analysis_rejected_small",
+                      session_id=self.session_id, frame_bytes=len(image_bytes))
+            return False
+        start = len(image_bytes) // 4
+        end = start + min(200, len(image_bytes) // 2)
+        sample = image_bytes[start:end]
+        if sample and sum(sample) / len(sample) < _MIN_BRIGHTNESS:
+            log_event(LOGGER, logging.INFO, "frame_for_analysis_rejected_dark",
+                      session_id=self.session_id)
             return False
 
         prompt = self._build_prompt(task_id, task_name, context_label)
@@ -369,6 +455,21 @@ async def send_room_scan_frame(
         return False
 
     if not image_bytes:
+        return False
+
+    # Server-side brightness check — reject black/very dark frames
+    _MIN_SIZE = 800
+    _MIN_BRIGHTNESS = 20
+    if len(image_bytes) < _MIN_SIZE:
+        log_event(LOGGER, logging.INFO, "room_scan_frame_rejected_small",
+                  session_id=session_id, frame_bytes=len(image_bytes))
+        return False
+    start = len(image_bytes) // 4
+    end = start + min(200, len(image_bytes) // 2)
+    sample = image_bytes[start:end]
+    if sample and sum(sample) / len(sample) < _MIN_BRIGHTNESS:
+        log_event(LOGGER, logging.INFO, "room_scan_frame_rejected_dark",
+                  session_id=session_id)
         return False
 
     try:

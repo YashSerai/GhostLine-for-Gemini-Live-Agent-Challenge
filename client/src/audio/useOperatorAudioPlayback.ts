@@ -22,6 +22,7 @@ export interface OperatorAudioPlaybackState {
   operatorAudioChunkCount: number;
   preparePlayback: () => Promise<void>;
   turnState: OperatorTurnState;
+  getAnalyserNode: () => AnalyserNode | null;
 }
 
 interface UseOperatorAudioPlaybackOptions {
@@ -193,5 +194,6 @@ export function useOperatorAudioPlayback(
     operatorAudioChunkCount,
     preparePlayback,
     turnState,
+    getAnalyserNode: () => playerRef.current?.getAnalyserNode() ?? null,
   };
 }

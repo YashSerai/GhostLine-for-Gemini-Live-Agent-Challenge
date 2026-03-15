@@ -39,6 +39,7 @@ export class AudioCaptureController {
 
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private analyserNode: AnalyserNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private scriptProcessorNode: ScriptProcessorNode | null = null;
   private fallbackGainNode: GainNode | null = null;
@@ -70,6 +71,9 @@ export class AudioCaptureController {
 
     this.audioContext = audioContext;
     this.sourceNode = audioContext.createMediaStreamSource(this.stream);
+    this.analyserNode = audioContext.createAnalyser();
+    this.analyserNode.fftSize = 256;
+    this.sourceNode.connect(this.analyserNode);
 
     if (typeof AudioWorkletNode !== "undefined" && audioContext.audioWorklet) {
       await audioContext.audioWorklet.addModule(PCM_CAPTURE_WORKLET_URL);
@@ -87,7 +91,7 @@ export class AudioCaptureController {
         this.handleWorkletMessage(event);
       };
 
-      this.sourceNode.connect(workletNode);
+      this.analyserNode.connect(workletNode);
       this.workletNode = workletNode;
     } else {
       const processorNode = audioContext.createScriptProcessor(1024, 1, 1);
@@ -99,7 +103,7 @@ export class AudioCaptureController {
         this.forwardSamples(new Float32Array(monoSamples), audioContext.sampleRate);
       };
 
-      this.sourceNode.connect(processorNode);
+      this.analyserNode.connect(processorNode);
       processorNode.connect(fallbackGainNode);
       fallbackGainNode.connect(audioContext.destination);
 
@@ -140,9 +144,18 @@ export class AudioCaptureController {
       this.sourceNode = null;
     }
 
+    if (this.analyserNode !== null) {
+      this.analyserNode.disconnect();
+      this.analyserNode = null;
+    }
+
     if (this.audioContext !== null) {
       this.audioContext = null;
     }
+  }
+
+  getAnalyserNode(): AnalyserNode | null {
+    return this.analyserNode;
   }
 
   private handleWorkletMessage(

@@ -16,7 +16,7 @@ DEMO_OPENER_LINE_GRANTED: Final[str] = (
 
 DEMO_OPENER_LINE_PROMPT: Final[str] = (
     "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
-    "I need explicit permission to hear you. When you press the 'Grant Microphone' button, "
+    "I need explicit permission to hear you. When you press the 'Grant Microphone Access' button, "
     "a browser popup will come asking to grant access. Please accept it now."
 )
 
@@ -37,17 +37,18 @@ DEMO_CAMERA_REQUEST_LINE: Final[str] = (
 DEMO_ROOM_SCAN_LINE: Final[str] = (
     "Good. Now stand in the center of the room and slowly pan the camera around "
     "in a full circle. Take about five seconds for a 360-degree view. "
+    "Make sure the room is well-lit and the camera is steady. "
+    "I need a clear feed — if the image is too dark or blurry, I will ask you to try again. "
     "I need to scan the full room before we begin containment."
 )
 
 DEMO_ROOM_SCAN_ASSESSMENT_LINE: Final[str] = (
-    "I can see the space. Our sensors are reading elevated residual activity "
-    "in this room. Spectral displacement concentrated near the threshold area. "
-    "This is consistent with a Class-2 residential haunting. "
-    "Containment protocol is warranted. Stay with me."
+    "Calibration sweep received. Our sensors are now processing the "
+    "spatial data. Initial readings show elevated residual activity "
+    "in this area. Spectral displacement concentrated near the "
+    "threshold zone. This is consistent with a Class-2 residential "
+    "haunting. Containment protocol is warranted. Stay with me."
 )
-
-
 
 # --------------------------------------------------------------------------- #
 # Task assignment                                                               #
@@ -60,39 +61,37 @@ DEMO_DIAGNOSIS_INTERPRETATION_LINE: Final[str] = (
 )
 
 # --------------------------------------------------------------------------- #
-# Inter-task flavor text beats (Archivist lore)                                 #
+# Inter-task flavor text (Archivist lore)                                       #
 # --------------------------------------------------------------------------- #
 
-DEMO_FLAVOR_POST_T1: Final[str] = (
-    "Good. The threshold is established. Residual patterns like this usually "
-    "settle once boundary is defined. Moving to the next step."
-)
-
 DEMO_FLAVOR_POST_T2: Final[str] = (
-    "Boundary is sealed. Activity of this type tends to concentrate near "
-    "transitional spaces — doors, hallways, stairwells. We're containing it."
+    "Boundary is sealed. Good. You felt that? That pressure shift? "
+    "The displacement field just compressed. It's contained to this room now. "
+    "Nothing in, nothing out. That's what we want."
 )
 
-DEMO_FLAVOR_POST_T3: Final[str] = (
-    "Illumination is up. The room reads cleaner now. Our containment protocol "
-    "was designed for exactly this spectral profile."
+DEMO_FLAVOR_POST_T5: Final[str] = (
+    "Anchor is set. Good. That paper is your tripwire now — if it moves "
+    "when you're not looking, the displacement field is active in that zone. "
+    "We have our reference point. Moving on."
 )
 
-DEMO_FLAVOR_POST_T4: Final[str] = (
-    "Camera is stable. Readings are leveling. The room is responding well."
+DEMO_FLAVOR_POST_T14: Final[str] = (
+    "I've logged the sound profile. That pattern is consistent with what "
+    "we've catalogued as boundary-phase displacement. It knows it's trapped. "
+    "One more step and we seal it."
 )
 
-DEMO_FLAVOR_POST_T6: Final[str] = (
-    "Surface is clear. That gives us a clean staging area for the final seal. "
-    "Almost there."
+DEMO_FLAVOR_POST_T7: Final[str] = (
+    "I felt that. The harmonic just flatlined — the displacement field "
+    "collapsed. Your containment phrase held. The seal is active."
 )
 
 DEMO_FLAVOR_BY_TASK: Final[dict[str, str]] = {
-    "T1": DEMO_FLAVOR_POST_T1,
     "T2": DEMO_FLAVOR_POST_T2,
-    "T3": DEMO_FLAVOR_POST_T3,
-    "T4": DEMO_FLAVOR_POST_T4,
-    "T6": DEMO_FLAVOR_POST_T6,
+    "T5": DEMO_FLAVOR_POST_T5,
+    "T14": DEMO_FLAVOR_POST_T14,
+    "T7": DEMO_FLAVOR_POST_T7,
 }
 
 # --------------------------------------------------------------------------- #
@@ -100,14 +99,16 @@ DEMO_FLAVOR_BY_TASK: Final[dict[str, str]] = {
 # --------------------------------------------------------------------------- #
 
 DEMO_RECOVERY_LINE: Final[str] = (
-    "I cannot verify that hold yet. Bring the boundary back to center, "
-    "raise the light slightly, and give me one more still frame."
+    "I cannot verify that yet. Something is off. Show me the full frame "
+    "again — slowly. I need to compare it to what I saw before."
 )
 
 DEMO_FINAL_CLOSURE_LINE: Final[str] = (
     "Containment Desk is closing the case now. All boundary checks confirmed. "
-    "Spectral readings are within safe parameters. Hold the room quiet while "
-    "I file the final report. Do not disturb the placements tonight."
+    "Spectral readings are within safe parameters. The displacement field has "
+    "collapsed. Hold the room quiet tonight — do not disturb the placements. "
+    "If anything resurfaces, call this number again. The Archivist is always on duty. "
+    "Stay safe."
 )
 
 

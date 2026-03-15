@@ -139,15 +139,15 @@ export function buildVerificationControlCopy(
   verificationResult: VerificationResultState,
 ): string {
   if (!isTransportActive) {
-    return "Start Call arms the live hotline. Ready to Verify, swap, pause, and end controls stay hidden until the line is active.";
+    return "Start Call arms hotline. Controls unlock when active.";
   }
 
   if (permissionStage !== "permissions_ready") {
-    return "Task controls stay locked until camera and microphone are granted in-call. End Session remains available so the user keeps a clean exit.";
+    return "Task controls lock until camera and mic are granted in-call.";
   }
 
   if (verificationResult.awaitingDecision) {
-    return "The staged verification window is with the backend now. Wait for the verdict before sending another verification, swap, or pause request.";
+    return "Verification is with the backend. Awaiting verdict.";
   }
 
   if (verificationResult.hasResolvedResult) {
@@ -182,16 +182,16 @@ export function buildVerificationControlCopy(
   }
 
   if (verificationPhase === "pending" || verificationPhase === "capturing_window") {
-    return "Ready to Verify is active now. Hold still for one second while the bounded verification window is captured.";
+    return "Ready to Verify active. Hold still for capture.";
   }
 
   if (verificationPhase === "uploading_frames") {
-    return "The bounded verification window was captured. Frame data is being sent to the backend now.";
+    return "Verification captured. Sending to backend.";
   }
 
   if (verificationPhase === "captured") {
-    return "The verification window is staged on the backend and awaiting the real verification result.";
+    return "Verification staged. Awaiting result.";
   }
 
-  return "Ready to Verify, swap, pause, and end now send structured WebSocket envelopes to the backend. Verification requests trigger a bounded hold-still capture window instead of a background stream.";
+  return "Controls armed. Verification requests trigger a bounded hold-still capture window.";
 }

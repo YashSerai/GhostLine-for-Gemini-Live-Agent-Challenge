@@ -347,6 +347,19 @@ export function buildGroundingHudSnapshot(
     "Not assigned",
   );
 
+  const protocolFields = [
+    createField("Protocol Step", protocolStep),
+    createField("Verification Status", verificationStatus),
+  ];
+
+  if (blockReason.value !== "None active") {
+    protocolFields.push(createField("Block Reason", blockReason));
+  }
+
+  if (recoveryStep.value !== "None active") {
+    protocolFields.push(createField("Recovery Step", recoveryStep));
+  }
+
   return {
     summary: [
       {
@@ -364,26 +377,24 @@ export function buildGroundingHudSnapshot(
         tone: verificationStatus.tone,
         value: verificationStatus.value,
       },
+      {
+        label: "System Integrity",
+        tone: options.connectionStatus === "connected" ? "success" : "warning",
+        value: options.connectionStatus === "connected" ? "Nominal" : "Degraded",
+      },
     ],
     sections: [
       {
         title: "Protocol",
-        fields: [
-          createField("Protocol Step", protocolStep),
-          createField("Verification Status", verificationStatus),
-          createField("Block Reason", blockReason),
-          createField("Recovery Step", recoveryStep),
-          createField("Turn Status", turnStatus),
-        ],
+        fields: protocolFields,
       },
       {
         title: "Active Task",
         fields: [
           createField("Active Task ID", activeTaskId),
           createField("Active Task Name", activeTaskName),
-          createField("Task Role Category", taskRoleCategory),
-          createField("Task Tier", taskTier),
           createField("Path Mode", pathMode),
+          createField("Classification Label", classificationLabel),
         ],
       },
       {
@@ -391,7 +402,6 @@ export function buildGroundingHudSnapshot(
         fields: [
           createField("Swap Count", swapCount),
           createField("Last Verified Item", lastVerifiedItem),
-          createField("Classification Label", classificationLabel),
         ],
       },
     ],
