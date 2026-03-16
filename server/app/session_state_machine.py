@@ -34,6 +34,7 @@ SessionStateName = Literal[
     "consent",
     "microphone_request",
     "name_request",
+    "name_confirmation",
     "camera_request",
     "room_sweep",
     "calibration",
@@ -73,7 +74,8 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "call_connected": ("consent", "ended"),
     "consent": ("microphone_request", "ended"),
     "microphone_request": ("name_request", "paused", "ended"),
-    "name_request": ("camera_request", "paused", "ended"),
+    "name_request": ("name_confirmation", "paused", "ended"),
+    "name_confirmation": ("name_request", "camera_request", "paused", "ended"),
     "camera_request": ("room_sweep", "paused", "ended"),
     "room_sweep": ("camera_request", "task_assigned", "waiting_ready", "paused", "ended"),
     "calibration": ("camera_request", "task_assigned", "paused", "ended"),
@@ -86,6 +88,7 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "paused": (
         "microphone_request",
         "name_request",
+        "name_confirmation",
         "camera_request",
         "room_sweep",
         "calibration",
@@ -110,6 +113,7 @@ _ALLOWED_PAUSE_STATES = frozenset(
     {
         "microphone_request",
         "name_request",
+        "name_confirmation",
         "camera_request",
         "room_sweep",
         "calibration",
@@ -186,23 +190,30 @@ class SessionStateMachine:
             DEMO_NEAR_FAILURE_SCRIPT.task_id if demo_mode_enabled else None
         )
         self.camera_ready = False
+        self.camera_button_clicked = False
+        self.camera_permission: str = "idle"
         self.camera_width: int | None = None
         self.camera_height: int | None = None
         self.calibration_captured_at: str | None = None
         self.calibration_capture_count = 0
         self.microphone_streaming = False
+        self.microphone_permission: str = "idle"
         self.transcript_references: list[dict[str, Any]] = []
         self.task_history: list[dict[str, Any]] = []
         self.verification_history: list[dict[str, Any]] = []
         self.transition_history: list[dict[str, Any]] = []
         self.ended_reason: str | None = None
+        self.caller_name: str | None = None
+        self.pending_caller_name: str | None = None
         # AI-observed room features from Gemini vision room scan.
         # When populated, these override keyword-based affordance inference.
         self.ai_observed_affordances: ObservedAffordances | None = None
         self.browser_mic_permission: str = "prompt"
+        self.browser_camera_permission: str = "prompt"
 
     async def handle_client_connect(self, payload: dict[str, Any]) -> None:
         self.browser_mic_permission = payload.get("browserMicPermission", "prompt")
+        self.browser_camera_permission = payload.get("browserCameraPermission", "prompt")
         self._transition("call_connected", "client_connect")
         self._transition("consent", "hotline_connected")
         self._transition("microphone_request", "in_call_permission_flow")
@@ -219,6 +230,8 @@ class SessionStateMachine:
     async def handle_camera_status(self, payload: dict[str, Any]) -> None:
         permission = payload.get("permission")
         preview = payload.get("preview")
+        if isinstance(permission, str) and permission.strip():
+            self.camera_permission = permission
         self.camera_ready = permission == "granted" and preview is True
         self.camera_width = _int_or_none(payload.get("width")) if self.camera_ready else None
         self.camera_height = _int_or_none(payload.get("height")) if self.camera_ready else None
@@ -226,9 +239,13 @@ class SessionStateMachine:
         if not self.camera_ready:
             self.calibration_captured_at = None
             self.calibration_capture_count = 0
+            if permission in {"denied", "idle"}:
+                self.camera_button_clicked = False
 
         if self.state != "paused":
-            if not self.camera_ready and self.state in {
+            if self._maybe_enter_room_sweep("camera_ready"):
+                pass
+            elif not self.camera_ready and self.state in {
                 "room_sweep",
                 "calibration",
                 "task_assigned",
@@ -244,16 +261,12 @@ class SessionStateMachine:
 
     async def handle_client_event(self, payload: dict[str, Any]) -> None:
         event = payload.get("event")
-        if event == "camera_button_clicked" and self.state == "camera_request":
-            # The user explicitly clicked Grant Camera
-            # Transition to room_sweep if camera properties are ready,
-            # or wait for the system to catch up if they aren't
-            if self.camera_ready:
-                self._transition("room_sweep", "camera_ready")
-            else:
-                # Still waiting for handle_camera_status to be called with granted payload
-                pass
-        
+        if event == "camera_button_clicked":
+            # Preserve the user action even if camera permission was granted early
+            # and the backend is still finishing the name-confirmation step.
+            self.camera_button_clicked = True
+            self._maybe_enter_room_sweep("camera_button_clicked")
+
         await self.emit_snapshot()
 
     def configure_demo_mode(self, enabled: bool) -> None:
@@ -276,6 +289,9 @@ class SessionStateMachine:
         )
 
     async def handle_mic_status(self, payload: dict[str, Any]) -> None:
+        permission = payload.get("permission")
+        if isinstance(permission, str) and permission.strip():
+            self.microphone_permission = permission
         self.microphone_streaming = payload.get("streaming") is True
 
         if self.microphone_streaming and self.state == "microphone_request":
@@ -527,9 +543,16 @@ class SessionStateMachine:
             "demoBargeInTargetLine": self.demo_barge_in_target_line,
             "demoBargeInTriggerPhrase": self.demo_barge_in_trigger_phrase,
             "cameraReady": self.camera_ready,
+            "cameraPermission": self.camera_permission,
+            "cameraButtonClicked": self.camera_button_clicked,
+            "browserCameraPermission": self.browser_camera_permission,
             "calibrationCapturedAt": self.calibration_captured_at,
             "calibrationCaptureCount": self.calibration_capture_count,
             "microphoneStreaming": self.microphone_streaming,
+            "microphonePermission": self.microphone_permission,
+            "browserMicPermission": self.browser_mic_permission,
+            "callerName": self.caller_name,
+            "pendingCallerName": self.pending_caller_name,
             "demoNearFailureStatus": self.demo_near_failure_status,
             "demoNearFailureFailureType": self.demo_near_failure_failure_type,
             "demoNearFailureTaskId": self.demo_near_failure_task_id,
@@ -558,8 +581,22 @@ class SessionStateMachine:
             self.turn_status = "speaking"
 
         if speaker == "user" and self.state == "name_request":
-            self._transition("camera_request", "name_provided")
-
+            parsed_name = _extract_caller_name(text)
+            if parsed_name is not None:
+                self.pending_caller_name = parsed_name
+                self._transition("name_confirmation", "name_candidate_captured")
+        elif speaker == "user" and self.state == "name_confirmation":
+            parsed_name = _extract_caller_name(text)
+            if _is_affirmative_response(text) and self.pending_caller_name is not None:
+                self.caller_name = self.pending_caller_name
+                self.pending_caller_name = None
+                self._transition("camera_request", "name_confirmed")
+                self._maybe_enter_room_sweep("camera_ready")
+            elif parsed_name is not None:
+                self.pending_caller_name = parsed_name
+            elif _is_negative_response(text):
+                self.pending_caller_name = None
+                self._transition("name_request", "name_retry_requested")
         self.transcript_references.append(
             {
                 "at": _utc_now_iso(),
@@ -704,7 +741,7 @@ class SessionStateMachine:
             return
 
         profile = self._build_live_capability_profile()
-        self.plan = build_protocol_plan(profile)
+        self.plan = build_protocol_plan(profile, seed=self.session_id)
         self.current_path_mode = profile.environment.path_mode
 
     def set_ai_observed_affordances(self, affordances: ObservedAffordances) -> None:
@@ -980,6 +1017,13 @@ class SessionStateMachine:
             }
         )
 
+    def _maybe_enter_room_sweep(self, reason: str) -> bool:
+        if self.state != "camera_request" or not self.camera_ready or not self.camera_button_clicked:
+            return False
+        self.camera_button_clicked = False
+        self._transition("room_sweep", reason)
+        return True
+
     def _transition(self, to_state: SessionStateName, reason: str) -> None:
         if to_state == self.state:
             return
@@ -1032,6 +1076,69 @@ def _infer_positive_affordance(
 ) -> bool | None:
     return True if _contains_any(lines, phrases) else None
 
+def _is_affirmative_response(text: str) -> bool:
+    normalized = " ".join(text.lower().split())
+    prefixes = (
+        "yes",
+        "yeah",
+        "yep",
+        "correct",
+        "right",
+        "that is correct",
+        "that's correct",
+        "that is right",
+        "that's right",
+    )
+    return any(normalized == prefix or normalized.startswith(f"{prefix} ") for prefix in prefixes)
+
+
+def _is_negative_response(text: str) -> bool:
+    normalized = " ".join(text.lower().split())
+    prefixes = (
+        "no",
+        "nope",
+        "incorrect",
+        "wrong",
+        "that is wrong",
+        "that's wrong",
+    )
+    return any(normalized == prefix or normalized.startswith(f"{prefix} ") for prefix in prefixes)
+
+def _extract_caller_name(text: str) -> str | None:
+    raw = text.strip()
+    if not raw:
+        return None
+
+    normalized = raw.lower()
+    prefixes = (
+        "my name is ",
+        "i am ",
+        "i'm ",
+        "this is ",
+        "it is ",
+        "its ",
+    )
+    for prefix in prefixes:
+        if normalized.startswith(prefix):
+            raw = raw[len(prefix):].strip()
+            break
+
+    candidate_words: list[str] = []
+    for token in raw.replace("-", " ").split():
+        cleaned = "".join(ch for ch in token if ch.isalpha() or ch == "'")
+        if not cleaned:
+            continue
+        if cleaned.lower() in {"name", "is", "the", "a", "an"} and not candidate_words:
+            continue
+        candidate_words.append(cleaned)
+        if len(candidate_words) >= 3:
+            break
+
+    if not candidate_words:
+        return None
+
+    return " ".join(word.capitalize() for word in candidate_words)
+
 def _normalize_task_context(value: dict[str, Any]) -> dict[str, Any]:
     return {
         "contextLabel": value.get("contextLabel"),
@@ -1075,6 +1182,13 @@ def _utc_now_iso() -> str:
 
 
 __all__ = ["SessionStateMachine", "SessionStateMachineError"]
+
+
+
+
+
+
+
 
 
 

@@ -1,117 +1,68 @@
 # Ghostline Devpost Submission
 
-This document is the submission package for the Ghostline Devpost submission, aligned with the Live Agents judging criteria.
+This document is the concise submission copy for Ghostline.
 
-## Concise Project Summary
+## Project Summary
 
-Ghostline is a live paranormal containment hotline built for the Gemini Live Agent Challenge. A caller speaks with **The Archivist, Containment Desk**, who requests camera access in-call, scans the room with Gemini Vision to identify available objects, guides the caller through an AI-selected containment protocol, verifies progress using Gemini's visual analysis, provides AI-reasoned recovery advice when steps fail, and ends the session with a scored case report.
+Ghostline is a live paranormal containment hotline built for the Gemini Live Agent Challenge. A caller speaks with **The Archivist, Containment Desk**, grants microphone and camera access inside the call, scans the room, completes containment tasks, and is challenged or confirmed based on camera evidence before the session ends with a structured case report.
 
-## Features & Functionality
+## Core Functionality
 
-Ghostline is a **Live Agents** experience — not a chatbot or text-box wrapper. The caller enters a live hotline call where the operator sees the room, hears the caller, and dynamically responds.
+- real-time voice interaction through Gemini Live on Vertex AI
+- camera-aware room scan during the live session
+- interruptible operator audio with barge-in handling
+- live transcript and grounding HUD during the call
+- task progression with visual verification outcomes
+- honest recovery guidance when a task cannot be confirmed
+- fixed judged demo mode and session-random regular mode
+- structured case report with verdict and task outcomes
 
-### Core Live Agent Capabilities
+## What Makes It A Live Agents Project
 
-- **Real-time voice interaction** via Gemini Live (`gemini-live-2.5-flash-native-audio`) on Vertex AI
-- **Natural barge-in** — interrupting the operator stops audio immediately and flushes stale output
-- **Camera-aware interaction** with in-call permission flow and staged verification windows
-- **Distinct operator persona** — The Archivist speaks in character with containment lore and procedural authority
+Ghostline is not a turn-based chatbot. The operator is meant to feel like a live incident desk:
 
-### AI Vision Integration
+- hears the caller in real time
+- speaks back in real time
+- reacts to interruption
+- requests camera access in context
+- watches the room during scan and task execution
+- uses camera evidence during verification
 
-- **Room Scan Analysis** — Gemini sees the caller's room at ~1 fps during calibration, narrates observations in character, and outputs structured `ROOM_FEATURES` markers
-- **AI-Driven Task Selection** — Gemini's room observations feed into an `ObservedAffordances` profile that determines which containment tasks are selected (e.g., if Gemini sees a door, threshold tasks are assigned)
-- **Vision Verification** — During "Ready to Verify" moments, captured frames are sent to Gemini for visual analysis of task completion
-- **AI-Reasoned Recovery** — When verification fails, Gemini receives the task context and failure reason, then provides specific, actionable recovery advice instead of generic retry instructions
+## Demo Mode
 
-### Adaptive Dialogue & Cinematic Verification
+Demo Mode exists for judged reliability.
 
-- **Context Directives** — After each verification result, Gemini receives structured context so it can generate operator dialogue that references what just happened.
-- **Cinematic Pacing** — The operator weaves in containment lore observations between tasks, using a panic-inducing but professional tone to heighten the reality of the incident.
-- **Honest Uncertainty** — The system uses explicit verification outcomes (`confirmed`, `unconfirmed`, `user_confirmed_only`) and never bluffs about what it can see.
+It keeps the same core flow, but constrains the run to:
 
-### Session Experience
+- fixed task order: `T2 -> T5 -> T14 -> T7`
+- one controlled near-failure on `T2`
+- one controlled diagnosis beat
+- one controlled barge-in phrase
 
-- **Dual-Mode Splash Screen** — "Launch Demo Mode" (highly optimized deterministic path) vs "Launch Beta Mode" (dynamic unscripted path) accessible right from the start.
-- **Session Timer** — Live MM:SS timer visible during the call and on the case report.
-- **Dynamic Sound Design** — Pre-baked ambient tension beds, sudden shrieks, and threshold creaks perfectly timed to task execution without interrupting the operator.
-- **Containment Score** — Calculated from verification outcomes, displayed as a gradient progress bar (green/amber/red).
-- **Case Report** — Structured report with verdict, incident classification, task-by-task results, and containment score.
-- **Share Report** — One-tap sharing via Web Share API (mobile) or clipboard copy (desktop).
-
-### Demo Mode
-
-- Fixed deterministic path for repeatable judged walkthroughs
-- Rehearsal harness with path visibility and beat tracking
-- Scripted barge-in and near-failure recovery moments
-
-### Cloud Infrastructure
-
-- **Cloud Run** — backend hosting with WebSocket support
-- **Firestore** — session snapshots, case report persistence, timing metadata
-- **Cloud Logging** — structured proof events for deployment verification
-- **Vertex AI** — Gemini Live session management for realtime multimodal interaction
-
-## Technologies Used
+## Technology Stack
 
 | Layer | Technology |
-|-------|-----------|
+|---|---|
 | Frontend | React, Vite, TypeScript |
 | Backend | Python, FastAPI, WebSocket |
-| AI | **Google GenAI SDK**, Gemini Live on Vertex AI |
+| AI | Google GenAI SDK, Gemini Live on Vertex AI |
 | Cloud | Cloud Run, Firestore, Cloud Logging |
-| Infrastructure | Docker, gcloud CLI |
 
-## Data Sources
+## Key Learnings
 
-Ghostline does not depend on external data feeds or third-party datasets. Non-AI assets include:
+1. barge-in quality strongly affects whether the product feels live or scripted
+2. staged verification works better than bluffing continuous certainty
+3. visible HUD state makes the operator feel more trustworthy
+4. a constrained demo path is better for judging than a fragile open-ended path
+5. recovery lines are more convincing when they explicitly mention what is missing from view
 
-- Authored task library with verification prompts
-- Deterministic planner rules and recovery ladders
-- Flavor text and diagnosis state models
-- Pre-baked ambient sound assets
+## Architecture Reference
 
-The primary live AI dependency is Gemini Live on Vertex AI for realtime voice, vision, and transcription.
-
-## Findings & Learnings
-
-1. **Staged verification > continuous vision** — Discrete "Ready to Verify" moments let the product stay honest about certainty
-2. **Barge-in quality is make-or-break** — If interruption is slow, the entire experience feels scripted
-3. **AI-driven task selection is the differentiator** — Having Gemini's room scan determine which tasks are available makes every session feel unique
-4. **Recovery should be reasoned, not canned** — AI recovery that references the specific failure ("I can see the door is still slightly cracked open") is dramatically more convincing
-5. **Grounding HUD builds trust** — Showing the session state, verification status, and recovery step makes the AI feel transparent
-
-## Architecture Diagram
-
-See [docs/ARCHITECTURE_DIAGRAM.png](docs/ARCHITECTURE_DIAGRAM.png) and the Mermaid source at [docs/ARCHITECTURE_DIAGRAM.mmd](docs/ARCHITECTURE_DIAGRAM.mmd).
-
-## Live Agents Alignment
-
-Included below is a breakdown of how Ghostline perfectly meets the Hackathon requirements:
-
-### Mandatory Tech Used
-- ✅ Leverages a **Gemini model** (`gemini-live-2.5-flash-native-audio` via Vertex AI)
-- ✅ Built strictly using the **Google GenAI SDK** in our Python backend.
-- ✅ Uses at least one Google Cloud Service (Hosted heavily on **Cloud Run**, persisting to **Firestore**, tracking via **Cloud Logging**, and powered by **Vertex AI**).
-
-### Beyond the Text Box
-Voice-first, camera-aware live call — not a chat interface with a voice option.
-
-### See, Hear, Speak
-- **See**: Gemini scans the room, analyzes verification frames, identifies objects
-- **Hear**: Realtime voice interaction with transcription and barge-in
-- **Speak**: The Archivist speaks in character with AI-generated contextual dialogue
-
-### Grounding
-Visible HUD showing: protocol step, active task, verification state, block reason, recovery step, swap count, turn status.
-
-### Live & Context-Aware
-Room scan observations → AI task selection → vision verification → AI recovery. Every session adapts to what Gemini actually sees.
+See [docs/ARCHITECTURE_DIAGRAM.md](docs/ARCHITECTURE_DIAGRAM.md) and [docs/ARCHITECTURE_DIAGRAM.mmd](docs/ARCHITECTURE_DIAGRAM.mmd).
 
 ## Honesty Notes
 
-- Verification is staged (discrete windows), not freeform continuous
-- The task system is curated with AI-driven selection
-- Demo mode is intentionally fixed for repeatable judging
-- Sound design uses pre-baked assets
-- The product is optimized for a strong demo without pretending to be unlimited
+- verification is evidence-based and can return `unconfirmed`
+- demo mode is intentionally constrained for repeatability
+- regular mode is still bounded by the authored task library and verification flow
+- the product aims to say when something is missing from frame instead of pretending to see it

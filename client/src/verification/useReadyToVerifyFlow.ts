@@ -302,6 +302,7 @@ export function useReadyToVerifyFlow(
           data: frame.data,
           capturedAt: frame.capturedAt,
           mimeType: frame.mimeType,
+          frameAnalysis: frame.analysis,
           qualityMetrics: captureWindow.qualityMetrics,
           sequence: index + 1,
           taskContext: payload.taskContext,
@@ -335,6 +336,8 @@ export function useReadyToVerifyFlow(
 
   return state;
 }
+
+
 
 
 

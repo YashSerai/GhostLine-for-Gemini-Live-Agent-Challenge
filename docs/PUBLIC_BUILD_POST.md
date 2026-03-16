@@ -4,11 +4,23 @@
 
 Building Ghostline: A Live Paranormal Hotline with Gemini Live, Honest Verification, and Real Interruption Handling
 
+## Required Hackathon Line
+
+Include this sentence somewhere near the top of the final published version:
+
+`This post was created for the purposes of entering the Gemini Live Agent Challenge.`
+
+If you share the post on social media, include:
+
+`#GeminiLiveAgentChallenge`
+
 ## Short Summary
 
 Ghostline is a live paranormal containment hotline built for the Gemini Live Agent Challenge. Instead of making a chatbot with spooky copy, I built a realtime voice-and-camera experience where a caller speaks with **The Archivist, Containment Desk**, performs short containment tasks in their room, interrupts the operator in real time, and only advances when the system can honestly verify what happened.
 
 ## Draft Post
+
+This post was created for the purposes of entering the Gemini Live Agent Challenge.
 
 Most AI demos still collapse into the same pattern: a text box, a voice mode, and a thin illusion of interactivity layered on top.
 
@@ -50,60 +62,56 @@ These tasks are not invented on the fly. They come from a deterministic, curated
 
 ### Key technical decisions
 
-#### 1. Realtime voice and camera, but staged camera verification
+#### 1. Realtime voice and camera with staged verification
 
 One important choice was not pretending the system had richer scene understanding than it really did.
 
-Instead of doing freeform continuous visual reasoning, Ghostline uses a staged **Ready to Verify** pattern:
+Instead of bluffing continuous certainty, Ghostline uses a staged **Ready to Verify** pattern:
 
 1. the user performs a task
 2. the user says or presses **Ready to Verify**
-3. the operator says `Hold still for one second.`
-4. the client captures a short verification window
+3. the operator asks them to hold still
+4. the client captures the verification window
 5. the backend returns `confirmed`, `unconfirmed`, or `user_confirmed_only`
 
 That pattern made the product more honest and easier to understand. It also gave the experience a clear rhythm that plays well in a live demo.
 
-#### 2. Deterministic task system instead of freeform agent improvisation
+#### 2. Deterministic task system instead of freeform improvisation
 
-Another major decision was to keep the task system deterministic.
+Ghostline uses a curated task library, a protocol planner, and an authoritative session state machine. That lets the experience feel adaptive without turning into a brittle freeform agent loop.
 
-Ghostline uses a curated task library, story-role helpers, a capability profile, a deterministic protocol planner, and an authoritative session state machine. That let the product feel adaptive without turning into a brittle freeform agent loop.
-
-The result is easier to debug, easier to rehearse, and much easier to demo credibly.
+The result is easier to debug, easier to rehearse, and easier to demonstrate credibly.
 
 #### 3. Interruption handling had to be real
 
 The interruption path is one of the most important parts of the project.
 
-Ghostline streams operator audio back to the client and tracks playback epochs so stale audio can be discarded after a barge-in. When the user interrupts, the playback buffer is flushed and the UI reflects the interrupted/listening state. That behavior is visible both in the transcript layer and the grounding HUD.
+Ghostline streams operator audio back to the client and tracks playback epochs so stale audio can be discarded after a barge-in. When the user interrupts, the playback buffer is flushed and the UI reflects the interrupted/listening state. That behavior is visible in both the transcript layer and the grounding HUD.
 
 Without that, the experience immediately feels fake.
 
 #### 4. Honest recovery instead of fake certainty
 
-I also wanted the product to degrade gracefully. If verification fails, Ghostline uses a deterministic recovery ladder: move closer, adjust angle or lighting, hold still again, retry, and only then reroute or substitute.
+If verification fails, Ghostline uses a deterministic recovery ladder: adjust framing, correct the physical task, retry, and only then reroute if needed.
 
-If the user cannot do a task at all, the system can accept the constraint and move to a substitute with the same story function.
-
-This keeps the hotline procedural instead of brittle, and it avoids the common failure mode where an AI demo either dead-ends or bluffs.
+This keeps the hotline procedural instead of brittle, and avoids the common failure mode where an AI demo either dead-ends or bluffs.
 
 ### Google Cloud hosting
 
-The backend is built with FastAPI and is prepared for deployment on **Cloud Run**.
+The backend is built with FastAPI and prepared for deployment on **Cloud Run**.
 
 The cloud path includes:
 
 - Cloud Run for hosting
 - Firestore for persisted session state and case reports
-- Cloud Logging for structured proof-grade session events
+- Cloud Logging for structured session events
 - Vertex AI / Gemini Live for realtime multimodal interaction
 
 That matters both technically and for the challenge itself. The project is not only using Gemini Live; it is also instrumented so a session can be followed through logs, Firestore, and cloud proof artifacts.
 
-### Demo mode mattered as much as core functionality
+### Demo mode mattered too
 
-One thing I learned quickly is that a hackathon project like this is judged both as a product and as a demonstration.
+A hackathon project like this is judged both as a product and as a demonstration.
 
 So Ghostline includes a first-class **Demo Mode** with:
 
@@ -111,37 +119,30 @@ So Ghostline includes a first-class **Demo Mode** with:
 - one scripted diagnosis beat
 - one scripted barge-in moment
 - one controlled near-failure and recovery beat
-- a rehearsal harness
 - a fast reset path between takes
 
-That did not make the product less real. It made the project more communicative. The same core systems are still there, but the best presentation path is fixed and repeatable.
+That does not make the product less real. It makes the best presentation path more repeatable.
 
 ### What I learned
 
 A few things became very clear while building this:
 
-- A Live Agents project needs more than voice output. It needs visible grounding and a coherent interaction structure.
-- Interruption quality is one of the fastest ways to tell whether the experience feels live or staged.
-- Staged verification is much better than overclaiming what the camera can understand.
-- Deterministic architecture is not the enemy of immersion. In a system like this, it is what makes the product reliable enough to feel intentional.
-- Submission assets are part of the product. README, architecture diagram, cloud proof, and the timed demo script all affect whether judges understand what they are seeing.
+- a Live Agents project needs more than voice output
+- interruption quality is one of the fastest ways to tell whether the experience feels live
+- staged verification is better than overclaiming what the camera can understand
+- deterministic architecture is not the enemy of immersion; in a system like this it is what makes the product reliable
+- submission assets are part of the product because they shape how judges understand what they are seeing
 
-### Built for the hackathon
+## Optional Shorter Outline
 
-Ghostline was created for the Gemini Live Agent Challenge, and that constraint shaped the project in a good way. It pushed the build toward realtime behavior, interruption handling, camera-aware interaction, and cloud-native credibility instead of settling for a themed wrapper around a generic chat loop.
+If you publish a shorter post instead of the full draft, use this structure:
 
-That was the right constraint. It forced the product to become much more concrete.
-
-## Optional Article Outline
-
-If you want to publish a shorter public post instead of the full draft above, use this structure:
-
-1. Hook: why most AI voice demos still feel like chatbots
-2. Project idea: a live paranormal containment hotline
-3. Why it qualifies as a Live Agents project
-4. Realtime voice + staged camera verification
-5. Deterministic tasks and recovery ladders
-6. Real interruption handling
+1. why most AI voice demos still feel like chatbots
+2. the Ghostline idea
+3. why it qualifies as a Live Agents project
+4. realtime voice + staged camera verification
+5. deterministic tasks and recovery ladders
+6. real interruption handling
 7. Google Cloud + Gemini Live architecture
-8. Demo mode and what it taught me about presentation
-9. Closing reflection on building for the hackathon
+8. what Demo Mode taught you about presentation
+9. closing reflection

@@ -77,6 +77,7 @@ type PermissionStage =
   | "request_microphone"
   | "microphone_requesting"
   | "microphone_denied"
+  | "name_request"
   | "request_camera"
   | "camera_requesting"
   | "camera_denied"
@@ -141,6 +142,7 @@ function formatCaptureSummary(timestamp: string, callStartTime: number | null): 
 
 function getPermissionStage(
   connectionStatus: SessionConnectionStatus,
+  sessionStateName: string | null,
   cameraPermission: string,
   cameraReady: boolean,
   microphonePermission: string,
@@ -150,27 +152,34 @@ function getPermissionStage(
     return "awaiting_call";
   }
 
+  if (sessionStateName === "name_request") {
+    return "name_request";
+  }
+
+  if (sessionStateName === "camera_request") {
+    if (cameraPermission === "requesting") {
+      return "camera_requesting";
+    }
+    if (cameraPermission === "denied") {
+      return "camera_denied";
+    }
+    return "request_camera";
+  }
+
+  if (sessionStateName === "room_sweep" || sessionStateName === "calibration" || sessionStateName === "task_assigned" || sessionStateName === "waiting_ready" || sessionStateName === "verifying" || sessionStateName === "diagnosis_beat" || sessionStateName === "recovery_active" || sessionStateName === "swap_pending" || sessionStateName === "completed" || sessionStateName === "case_report" || sessionStateName === "ended" || sessionStateName === "paused") {
+    return "permissions_ready";
+  }
+
   if (microphonePermission === "requesting") {
     return "microphone_requesting";
   }
-
   if (microphonePermission === "denied") {
     return "microphone_denied";
   }
-
   if (microphonePermission !== "granted" && !isMicStreaming) {
     return "request_microphone";
   }
-
-  if (cameraPermission === "requesting") {
-    return "camera_requesting";
-  }
-
-  if (!cameraReady) {
-    return cameraPermission === "denied" ? "camera_denied" : "request_camera";
-  }
-
-  return "permissions_ready";
+  return "request_microphone";
 }
 
 function formatPermissionStage(stage: PermissionStage): string {
@@ -183,6 +192,8 @@ function formatPermissionStage(stage: PermissionStage): string {
       return "Microphone Prompt Open";
     case "microphone_denied":
       return "Microphone Denied";
+    case "name_request":
+      return "Confirm Name";
     case "request_camera":
       return "Request Camera";
     case "camera_requesting":
@@ -279,7 +290,7 @@ function getOperatorPlaceholder(
     connectionStatus === "connecting" ||
     connectionStatus === "reconnecting"
   ) {
-    return "Containment Desk is bringing the line up now. Stay with me. I will request microphone first, then camera, then one room sweep and calibration still frame.";
+    return "Containment Desk is bringing the line up now. Stay with me. I will request microphone first, then confirm your name, then camera, then one room sweep and calibration still frame.";
   }
 
   if (permissionStage === "request_microphone") {
@@ -287,15 +298,19 @@ function getOperatorPlaceholder(
   }
 
   if (permissionStage === "microphone_requesting") {
-    return "The microphone request is open now. Approve it and return to the call. Camera comes next.";
+    return "The microphone request is open now. Approve it and return to the call. Name confirmation comes next.";
   }
 
   if (permissionStage === "microphone_denied") {
-    return "Microphone access was denied. Retry it now. I need to hear you before I place the camera and containment steps.";
+    return "Microphone access was denied. Retry it now. I need to hear you before I can confirm your name and open camera access.";
+  }
+
+  if (permissionStage === "name_request") {
+    return "Microphone is live. State your name clearly so the operator can confirm who is on the line before opening camera access.";
   }
 
   if (permissionStage === "request_camera") {
-    return "Good. I have confirmed microphone access. Since you placed this call, I am treating the room as an active containment case. Now grant camera access so I can see the surrounding space.";
+    return "Good. I have confirmed microphone access and the caller baseline. Now grant camera access so I can see the surrounding space.";
   }
 
   if (permissionStage === "camera_requesting") {
@@ -315,7 +330,7 @@ function getOperatorPlaceholder(
     !isMicStreaming &&
     microphonePermission === "granted"
   ) {
-    return "Camera and microphone are both approved in-call. Resume the microphone stream when you are ready to continue the ";
+    return "Camera and microphone are both approved in-call. Resume the microphone stream when you are ready to continue.";
   }
 
   const activeTaskInstruction = buildActiveTaskInstruction(activeTaskContext);
@@ -350,7 +365,6 @@ function getOperatorPlaceholder(
 
   return "Primary operator guidance will render here during the live call. Voice is primary, and this panel mirrors the active instruction in case you miss a spoken line.";
 }
-
 function getPermissionRequestCopy(
   permissionStage: PermissionStage,
   isMicStreaming: boolean,
@@ -359,31 +373,37 @@ function getPermissionRequestCopy(
     case "awaiting_call":
       return {
         title: "Call Not Started",
-        body: "Start the hotline first. Microphone comes first, then camera, then one room sweep and one calibration still frame.",
+        body: "Start the hotline first. Microphone comes first, then name confirmation, then camera, then one room sweep and one calibration still frame.",
         tone: "pending",
       };
     case "request_microphone":
       return {
         title: "Microphone Request",
-        body: "The Archivist is taking control of the call now. Grant microphone access first so the line can hear you clearly before the room sweep begins.",
+        body: "Grant microphone access first so the line can hear you clearly before the caller baseline and room feed begin.",
         tone: "pending",
       };
     case "microphone_requesting":
       return {
         title: "Awaiting Microphone Permission",
-        body: "Your browser microphone prompt should be open. Approve it, then return to the call. Camera comes next.",
+        body: "Your browser microphone prompt should be open. Approve it, then return to the call. Name confirmation comes next.",
         tone: "pending",
       };
     case "microphone_denied":
       return {
         title: "Microphone Access Denied",
-        body: "Retry microphone access now. The hotline should hear you before it asks for the room feed.",
+        body: "Retry microphone access now. The hotline should hear you before it confirms your identity baseline and asks for the room feed.",
         tone: "warning",
+      };
+    case "name_request":
+      return {
+        title: "Confirm Caller Name",
+        body: "Microphone is live. State your name clearly so the operator can confirm who is on the line before camera access begins.",
+        tone: "pending",
       };
     case "request_camera":
       return {
         title: "Camera Request",
-        body: "Microphone access is confirmed. Grant camera access now so the Archivist can direct a room sweep, lock calibration, and place the first containment step.",
+        body: "Name confirmation is complete. Grant camera access now so the Archivist can direct a room sweep, lock calibration, and place the first containment step.",
         tone: "pending",
       };
     case "camera_requesting":
@@ -409,7 +429,7 @@ function getPermissionRequestCopy(
     default:
       return {
         title: "Call Not Started",
-        body: "Start the hotline first. Microphone comes first, then camera, then one room sweep and one calibration still frame.",
+        body: "Start the hotline first. Microphone comes first, then name confirmation, then camera, then one room sweep and one calibration still frame.",
         tone: "pending",
       };
   }
@@ -607,6 +627,7 @@ function buildArchiveReferences(caseId: string): string[] {
 
 function App() {
   const [browserMicPermission, setBrowserMicPermission] = useState<string>("prompt");
+  const [browserCameraPermission, setBrowserCameraPermission] = useState<string>("prompt");
 
   useEffect(() => {
     if (typeof navigator?.permissions?.query !== "function") return;
@@ -620,6 +641,17 @@ function App() {
       .catch((err) => console.warn("Could not query microphone permission", err));
   }, []);
 
+  useEffect(() => {
+    if (typeof navigator?.permissions?.query !== "function") return;
+    navigator.permissions.query({ name: "camera" as PermissionName })
+      .then((status) => {
+        setBrowserCameraPermission(status.state);
+        status.onchange = () => {
+          setBrowserCameraPermission(status.state);
+        };
+      })
+      .catch((err) => console.warn("Could not query camera permission", err));
+  }, []);
   // --- Hooks ---
   const [splashDemoMode, setSplashDemoMode] = useState<boolean>(parseRouteFlag("demo"));
   const {
@@ -706,7 +738,7 @@ function App() {
   useTaskVision({
     isActive:
       camera.cameraReady &&
-      (sessionState.state === "task_assigned" || sessionState.state === "waiting_ready"),
+      (sessionState.state === "task_assigned" || sessionState.state === "waiting_ready" || sessionState.state === "recovery_active"),
     connectionStatus: status,
     videoRef: camera.videoRef,
     canvasRef: camera.canvasRef,
@@ -786,18 +818,31 @@ function App() {
   const connectionLabel = statusLabels[status];
   const operatorTurnLabel = getOperatorTurnLabel(operatorAudio.turnState);
   const operatorTurnTone = getOperatorTurnTone(operatorAudio.turnState, status);
+  const effectiveCameraPermission =
+    sessionState.hasSnapshot && sessionState.cameraPermission !== null
+      ? sessionState.cameraPermission
+      : camera.permission;
+  const effectiveCameraReady =
+    sessionState.hasSnapshot ? sessionState.cameraReady : camera.cameraReady;
+  const effectiveMicrophonePermission =
+    sessionState.hasSnapshot && sessionState.microphonePermission !== null
+      ? sessionState.microphonePermission
+      : microphone.permission;
+  const effectiveMicStreaming =
+    sessionState.hasSnapshot ? sessionState.microphoneStreaming : microphone.isStreaming;
   const permissionStage = getPermissionStage(
     status,
-    camera.permission,
-    camera.cameraReady,
-    microphone.permission,
-    microphone.isStreaming,
+    sessionState.state,
+    effectiveCameraPermission,
+    effectiveCameraReady,
+    effectiveMicrophonePermission,
+    effectiveMicStreaming,
   );
   const permissionStageLabel = formatPermissionStage(permissionStage);
   const isDemoMode = sessionState.demoModeEnabled || demoModeRequested;
   const permissionRequestCopy = getPermissionRequestCopy(
     permissionStage,
-    microphone.isStreaming,
+    effectiveMicStreaming,
   );
   const activeIssue =
     verificationFlow.error ??
@@ -809,11 +854,11 @@ function App() {
   const fallbackOperatorPlaceholder = getOperatorPlaceholder(
     status,
     permissionStage,
-    camera.cameraReady,
+    effectiveCameraReady,
     camera.captureFrameCount,
     activeTaskContext,
-    microphone.permission,
-    microphone.isStreaming,
+    effectiveMicrophonePermission,
+    effectiveMicStreaming,
     operatorAudio.isSpeaking,
     operatorAudio.turnState,
     operatorAudio.operatorAudioChunkCount,
@@ -828,7 +873,7 @@ function App() {
       status === "connected" &&
       permissionStage === "permissions_ready" &&
       sessionState.state !== "paused" &&
-      microphone.isStreaming &&
+      effectiveMicStreaming &&
       verificationFlow.phase === "idle" &&
       !verificationResult.awaitingDecision &&
       !verificationResult.hasResolvedResult &&
@@ -838,9 +883,9 @@ function App() {
       !taskControls.endSessionPending &&
       !operatorAudio.isInterrupted &&
       activeIssue === null,
-    allowDiagnosticPrompt: camera.cameraReady && camera.captureFrameCount > 0,
+    allowDiagnosticPrompt: effectiveCameraReady && camera.captureFrameCount > 0,
     context:
-      camera.cameraReady && camera.captureFrameCount > 0
+      effectiveCameraReady && camera.captureFrameCount > 0
         ? "task_execution"
         : "frame_guidance",
     demoModeEnabled: sessionState.demoModeEnabled || demoModeRequested,
@@ -900,14 +945,14 @@ function App() {
 
   const groundingHud = buildGroundingHudSnapshot({
     activeIssue,
-    cameraPermission: camera.permission,
+    cameraPermission: effectiveCameraPermission,
     cameraReady: camera.cameraReady,
     captureFrameCount: camera.captureFrameCount,
     connectionStatus: status,
     isMicStreaming: microphone.isStreaming,
     isOperatorSpeaking: operatorAudio.isSpeaking,
     lastCapturedFrame: camera.lastCapturedFrame,
-    microphonePermission: microphone.permission,
+    microphonePermission: effectiveMicrophonePermission,
     overrides: {
       ...sessionStateHudOverrides,
       ...buildVerificationHudOverrides(
@@ -953,8 +998,8 @@ function App() {
   const canReadyToVerify =
     areTaskControlsArmed &&
     sessionState.allowedActions.canVerify &&
-    camera.cameraReady &&
-    microphone.isStreaming &&
+    effectiveCameraReady &&
+    effectiveMicStreaming &&
     !verificationFlow.isBusy &&
     !verificationResult.awaitingDecision &&
     !isRecoveryRerouteRequired &&
@@ -986,7 +1031,7 @@ function App() {
     !isDemoResetting;
   const subtitlePlaceholder = getTranscriptPlaceholder(
     status,
-    microphone.isStreaming,
+    effectiveMicStreaming,
     transcriptLayer.hasEntries,
   );
   const verificationWindowActive =
@@ -997,7 +1042,7 @@ function App() {
     camera.permission !== "requesting";
   const canRequestMicrophone =
     status === "connected" &&
-    !microphone.isStreaming &&
+    !effectiveMicStreaming &&
     microphone.permission !== "requesting";
 
   useEffect(() => {
@@ -1044,8 +1089,8 @@ function App() {
     permissionActionDisabled = true;
   } else if (
     permissionStage === "permissions_ready" &&
-    microphone.permission === "granted" &&
-    !microphone.isStreaming
+    effectiveMicrophonePermission === "granted" &&
+    !effectiveMicStreaming
   ) {
     permissionActionLabel = "Resume Microphone Stream";
     permissionAction = () => {
@@ -1055,18 +1100,28 @@ function App() {
     permissionActionDisabled = !canRequestMicrophone;
   }
 
-  async function handleStartCall(): Promise<void> {
+  async function handleStartCall(selectedDemoMode: boolean = splashDemoMode): Promise<void> {
     if (isTransportActive || isDemoResetting) {
       return;
     }
 
+    setSplashDemoMode(selectedDemoMode);
     void operatorAudio.preparePlayback();
     void soundPlayback.prepare();
     playStartCallRing();
     transcriptLayer.resetTranscript();
     setPendingStartCallIntro(true);
-    updateClientConnectPayload({ browserMicPermission });
+    updateClientConnectPayload({
+      browserMicPermission,
+      browserCameraPermission,
+      demoMode: selectedDemoMode,
+    });
     connect();
+  }
+
+  function handleModeSelection(nextDemoMode: boolean): void {
+    setShowSplash(false);
+    void handleStartCall(nextDemoMode);
   }
 
   async function handleDemoReset(): Promise<void> {
@@ -1120,7 +1175,7 @@ function App() {
     const cr = sessionState.caseReport;
     if (!cr) return;
     const text = [
-      `🔮 GHOSTLINE CONTAINMENT REPORT`,
+      `GHOSTLINE CONTAINMENT REPORT`,
       `Case: ${cr.caseId}`,
       `Verdict: ${cr.closingTemplate.heading}`,
       `Classification: ${cr.incidentClassificationLabel}`,
@@ -1130,7 +1185,7 @@ function App() {
       ``,
       `${cr.closingTemplate.closingLine}`,
       ``,
-      `Investigated via Ghostline — Live Paranormal Containment Hotline`,
+      `Investigated via Ghostline - Live Paranormal Containment Hotline`,
     ].filter(Boolean).join("\n");
 
     if (navigator.share) {
@@ -1150,22 +1205,20 @@ function App() {
   // --- Splash screen ---
   if (showSplash) {
     return (
-      <div className="ghostline-splash" onClick={() => setShowSplash(false)}>
+      <div className="ghostline-splash">
         <div className="splash-content">
           <p className="splash-eyebrow">Ghostline</p>
           <h1 className="splash-title">Live Paranormal<br />Containment Hotline</h1>
           <p className="splash-body">
             A real-time voice &amp; camera experience powered by Gemini Live.
-            The Archivist guides you through a containment protocol — step by step.
+            The Archivist guides you through a containment protocol - step by step.
           </p>
           <div className="splash-button-group">
             <button
               type="button"
               className="splash-cta splash-cta-primary"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSplashDemoMode(true);
-                setShowSplash(false);
+              onClick={() => {
+                handleModeSelection(true);
               }}
             >
               Launch Demo Mode
@@ -1173,16 +1226,14 @@ function App() {
             <button
               type="button"
               className="splash-cta splash-cta-secondary"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSplashDemoMode(false);
-                setShowSplash(false);
+              onClick={() => {
+                handleModeSelection(false);
               }}
             >
-              Launch Regular Mode (Beta)
+              Launch Regular Mode
             </button>
           </div>
-          <p className="splash-hint">Select a mode to continue</p>
+          <p className="splash-hint">Select a mode to start the call</p>
         </div>
       </div>
     );
@@ -1217,7 +1268,7 @@ function App() {
           </span>
           {callStartTime !== null ? (
             <span className="status-pill status-pill-connected">
-              ⏱ {formatTimer(elapsedSeconds)}
+              T+ {formatTimer(elapsedSeconds)}
             </span>
           ) : null}
           {activeIssue ? (
@@ -1372,18 +1423,34 @@ function App() {
 
             <div className="subtitle-list" ref={subtitleListRef}>
               {(() => {
-                const GUIDANCE_SOURCES = new Set([
-                  "demo_mode",
-                  "operator_guidance",
-                  "session_guidance",
-                  "verification_flow",
-                  "recovery_ladder",
-                ]);
-                const spokenEntries = transcriptLayer.entries.filter(
-                  (entry) => !GUIDANCE_SOURCES.has(entry.source),
-                );
-                return spokenEntries.length > 0 ? (
-                  spokenEntries.map((entry) => (
+                const visibleEntries = transcriptLayer.entries.filter((entry, index, entries) => {
+                  if (entry.speaker !== "operator" || entry.status !== "final") {
+                    return true;
+                  }
+
+                  const previousEntry = entries[index - 1];
+                  if (
+                    !previousEntry ||
+                    previousEntry.speaker !== "operator" ||
+                    previousEntry.status !== "final"
+                  ) {
+                    return true;
+                  }
+
+                  const sameText =
+                    previousEntry.text.trim().toLowerCase() === entry.text.trim().toLowerCase();
+                  const backendPair =
+                    BACKEND_AUTHORED_OPERATOR_SOURCES.has(previousEntry.source) ||
+                    BACKEND_AUTHORED_OPERATOR_SOURCES.has(entry.source);
+
+                  if (!sameText || !backendPair) {
+                    return true;
+                  }
+
+                  return entry.source === "gemini_live";
+                });
+                return visibleEntries.length > 0 ? (
+                  visibleEntries.map((entry) => (
                   <article
                     className={`subtitle-row subtitle-row-${entry.speaker}`}
                     key={entry.id}
@@ -1565,9 +1632,9 @@ function App() {
                 }} />
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
                   <span style={{ fontSize: "16px" }}>
-                    {sessionState.state === "verifying" ? "🟠" :
-                     sessionState.state === "recovery_active" ? "🔴" :
-                     verificationResult.status === "confirmed" ? "✅" : "🔵"}
+                    {sessionState.state === "verifying" ? "VERIFY" :
+                     sessionState.state === "recovery_active" ? "BLOCKED" :
+                     verificationResult.status === "confirmed" ? "OK" : "LIVE"}
                   </span>
                   <strong style={{ fontSize: "14px", color: "#e2e8f0", letterSpacing: "0.02em" }}>
                     {activeTaskContext.taskName}
@@ -1604,7 +1671,7 @@ function App() {
                       });
                     }}
                   >
-                    {taskControls.readyToVerifyPending ? "Verifying..." : "✓ Mark Complete"}
+                    {taskControls.readyToVerifyPending ? "Verifying..." : "Mark Complete"}
                   </button>
                 </div>
               </div>
@@ -1712,14 +1779,7 @@ function App() {
           </div>
 
           <div className="hud-sections">
-            {groundingHud.sections.map((section) => {
-              if (
-                (section.title === "Initial Scan & Calibration" && sessionState.state !== "room_scan" && sessionState.state !== "idle" && sessionState.state !== "awaiting_permissions") ||
-                (section.title === "Active Containment Step" && sessionState.state === "idle")
-              ) {
-                return null;
-              }
-              return (
+            {groundingHud.sections.map((section) => (
               <section className="hud-section" key={section.title}>
                 <h3>{section.title}</h3>
                 <dl className="hud-grid">
@@ -1733,8 +1793,7 @@ function App() {
                   ))}
                 </dl>
               </section>
-            );
-            })}
+            ))}
           </div>
         </aside>
       </main>
@@ -1831,7 +1890,7 @@ function App() {
             className="secondary-button share-report-button"
             onClick={() => { void handleShareReport(); }}
           >
-            📋 Share Containment Report
+            Share Containment Report
           </button>
 
           <div className="case-report-task-list" role="list">
@@ -1867,6 +1926,22 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

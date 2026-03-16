@@ -73,6 +73,10 @@ class VerificationFrameRecord:
     sequence: int
     total_frames: int
     width: int
+    detail_score: float | None = None
+    lighting_score: float | None = None
+    motion_signature: tuple[float, ...] = ()
+    source: str | None = None
 
 
 @dataclass
@@ -87,6 +91,14 @@ class VerificationAttempt:
     task_context: dict[str, Any]
     frames: list[VerificationFrameRecord] = field(default_factory=list)
     quality_metrics_input: dict[str, float] | None = None
+    baseline_frame: VerificationFrameRecord | None = None
+    recent_task_frames: tuple[VerificationFrameRecord, ...] = ()
+
+
+@dataclass
+class TaskVisualContext:
+    baseline_frame: VerificationFrameRecord | None = None
+    recent_frames: list[VerificationFrameRecord] = field(default_factory=list)
 
 
 class SessionVerificationFlow:
@@ -112,6 +124,7 @@ class SessionVerificationFlow:
         )
         self._recent_user_transcripts: list[str] = []
         self._recovery_ladder = VerificationRecoveryLadder()
+        self._task_visual_context: dict[str, TaskVisualContext] = {}
 
     @property
     def is_pending(self) -> bool:
@@ -146,6 +159,27 @@ class SessionVerificationFlow:
     def update_microphone_state(self, payload: dict[str, Any]) -> None:
         self._microphone_streaming = payload.get("streaming") is True
 
+    def observe_task_vision_frame(
+        self,
+        payload: dict[str, Any],
+        task_context: dict[str, Any] | None,
+    ) -> None:
+        task_id = _task_id_from_context(task_context)
+        if task_id is None:
+            return
+
+        frame = _parse_visual_evidence_payload(payload)
+        context = self._task_visual_context.get(task_id)
+        if context is None:
+            context = TaskVisualContext()
+            self._task_visual_context[task_id] = context
+
+        if context.baseline_frame is None:
+            context.baseline_frame = frame
+
+        context.recent_frames.append(frame)
+        context.recent_frames = context.recent_frames[-6:]
+
     async def start_verification(self, payload: dict[str, Any]) -> None:
         if self._active_attempt is not None:
             raise VerificationFlowError(
@@ -178,6 +212,9 @@ class SessionVerificationFlow:
                 "This verification path is still blocked. Switch path mode or substitute task before another Ready to Verify attempt."
             )
 
+        task_visual_context = self._task_visual_context.get(
+            _task_id_from_context(task_context) or ""
+        )
         attempt = VerificationAttempt(
             attempt_id=f"verify-{uuid4().hex}",
             capture_window_ms=_CAPTURE_WINDOW_MS,
@@ -187,6 +224,16 @@ class SessionVerificationFlow:
             source=source,
             started_at=_utc_now_iso(),
             task_context=task_context,
+            baseline_frame=(
+                task_visual_context.baseline_frame
+                if task_visual_context is not None
+                else None
+            ),
+            recent_task_frames=(
+                tuple(task_visual_context.recent_frames)
+                if task_visual_context is not None
+                else ()
+            ),
         )
         self._active_attempt = attempt
 
@@ -380,17 +427,7 @@ class SessionVerificationFlow:
             attempt_id=attempt.attempt_id,
             capability_profile=capability_profile,
             current_path_mode=current_path_mode,
-            frames=tuple(
-                VerificationFrameInput(
-                    captured_at=frame.captured_at,
-                    height=frame.height,
-                    mime_type=frame.mime_type,
-                    sequence=frame.sequence,
-                    total_frames=frame.total_frames,
-                    width=frame.width,
-                )
-                for frame in attempt.frames
-            ),
+            frames=tuple(_record_to_frame_input(frame) for frame in attempt.frames),
             quality_metrics=quality_metrics,
             raw_transcript_snippet=attempt.raw_transcript_snippet,
             recent_user_transcripts=tuple(self._recent_user_transcripts),
@@ -398,6 +435,14 @@ class SessionVerificationFlow:
             source=attempt.source,
             started_at=attempt.started_at,
             task_context=attempt.task_context,
+            baseline_frame=(
+                _record_to_frame_input(attempt.baseline_frame)
+                if attempt.baseline_frame is not None
+                else None
+            ),
+            recent_task_frames=tuple(
+                _record_to_frame_input(frame) for frame in attempt.recent_task_frames
+            ),
         )
 
         decision = self._build_demo_mode_override(attempt)
@@ -657,6 +702,10 @@ def _parse_frame_payload(payload: dict[str, Any]) -> VerificationFrameRecord:
             "Verification frames must include an image/* MIME type."
         )
 
+    lighting_score, detail_score, motion_signature = _parse_optional_frame_analysis(
+        payload.get("frameAnalysis")
+    )
+
     return VerificationFrameRecord(
         captured_at=captured_at,
         data=data.strip(),
@@ -665,6 +714,57 @@ def _parse_frame_payload(payload: dict[str, Any]) -> VerificationFrameRecord:
         sequence=sequence,
         total_frames=total_frames,
         width=width,
+        detail_score=detail_score,
+        lighting_score=lighting_score,
+        motion_signature=motion_signature,
+        source="verification",
+    )
+
+
+def _parse_visual_evidence_payload(payload: dict[str, Any]) -> VerificationFrameRecord:
+    data = payload.get("data")
+    if not isinstance(data, str) or not data.strip():
+        raise VerificationFlowError(
+            "Visual evidence frames must include base64 image data."
+        )
+
+    width = payload.get("width")
+    height = payload.get("height")
+    captured_at = payload.get("capturedAt")
+    mime_type = payload.get("mimeType")
+
+    for field_name, value in (("width", width), ("height", height)):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise VerificationFlowError(
+                f"Visual evidence field {field_name} must be an integer."
+            )
+
+    if not isinstance(captured_at, str) or not captured_at.strip():
+        raise VerificationFlowError(
+            "Visual evidence frames must include a capturedAt timestamp."
+        )
+
+    normalized_mime_type = (
+        mime_type
+        if isinstance(mime_type, str) and mime_type.startswith("image/")
+        else "image/jpeg"
+    )
+    lighting_score, detail_score, motion_signature = _parse_optional_frame_analysis(
+        payload.get("frameAnalysis")
+    )
+
+    return VerificationFrameRecord(
+        captured_at=captured_at,
+        data=data.strip(),
+        height=height,
+        mime_type=normalized_mime_type,
+        sequence=1,
+        total_frames=1,
+        width=width,
+        detail_score=detail_score,
+        lighting_score=lighting_score,
+        motion_signature=motion_signature,
+        source="task_vision",
     )
 
 
@@ -691,6 +791,94 @@ def _parse_optional_quality_metrics(value: Any) -> dict[str, float] | None:
     return parsed
 
 
+
+def _parse_optional_frame_analysis(
+    value: Any,
+) -> tuple[float | None, float | None, tuple[float, ...]]:
+    if not isinstance(value, dict):
+        return None, None, ()
+
+    lighting_score = _coerce_optional_score(value.get("lightingScore"))
+    detail_score = _coerce_optional_score(value.get("detailScore"))
+    motion_signature_raw = value.get("motionSignature")
+    motion_signature: tuple[float, ...] = ()
+    if isinstance(motion_signature_raw, list):
+        parsed_signature: list[float] = []
+        for item in motion_signature_raw[:256]:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                parsed_signature = []
+                break
+            parsed_signature.append(float(item))
+        motion_signature = tuple(parsed_signature)
+
+    return lighting_score, detail_score, motion_signature
+
+
+def _coerce_optional_score(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    normalized = float(value)
+    if normalized < 0 or normalized > 1:
+        return None
+    return normalized
+
+
+def _compute_motion_stability(frames: list[VerificationFrameRecord]) -> float:
+    comparable_frames = [frame for frame in frames if frame.motion_signature]
+    if len(comparable_frames) < 2:
+        return 0.5
+
+    distances: list[float] = []
+    for previous, current in zip(comparable_frames, comparable_frames[1:]):
+        distance = _signature_distance(previous.motion_signature, current.motion_signature)
+        if distance is not None:
+            distances.append(distance)
+
+    if not distances:
+        return 0.5
+
+    average_distance = sum(distances) / len(distances)
+    return max(0.0, min(1.0, 1 - average_distance))
+
+
+def _record_to_frame_input(frame: VerificationFrameRecord) -> VerificationFrameInput:
+    return VerificationFrameInput(
+        captured_at=frame.captured_at,
+        height=frame.height,
+        mime_type=frame.mime_type,
+        sequence=frame.sequence,
+        total_frames=frame.total_frames,
+        width=frame.width,
+        data=frame.data,
+        detail_score=frame.detail_score,
+        lighting_score=frame.lighting_score,
+        motion_signature=frame.motion_signature,
+        source=frame.source,
+    )
+
+
+def _signature_distance(
+    left: tuple[float, ...],
+    right: tuple[float, ...],
+) -> float | None:
+    if not left or not right:
+        return None
+    sample_count = min(len(left), len(right))
+    if sample_count <= 0:
+        return None
+    total = 0.0
+    for index in range(sample_count):
+        total += abs(left[index] - right[index])
+    return min(1.0, (total / sample_count) / 255.0)
+
+
+def _task_id_from_context(task_context: dict[str, Any] | None) -> str | None:
+    if not isinstance(task_context, dict):
+        return None
+    task_id = task_context.get("taskId")
+    if isinstance(task_id, str) and task_id.strip():
+        return task_id.strip()
+    return None
 def _build_quality_metrics_for_attempt(attempt: VerificationAttempt) -> QualityMetrics:
     raw = attempt.quality_metrics_input
     if raw is not None:
@@ -700,9 +888,28 @@ def _build_quality_metrics_for_attempt(attempt: VerificationAttempt) -> QualityM
             motion_stability=raw["motion_stability"],
         )
 
-    consistent_dimensions = len(
-        {(frame.width, frame.height) for frame in attempt.frames}
-    ) == 1
+    analyzed_frames = [
+        frame
+        for frame in attempt.frames
+        if frame.lighting_score is not None or frame.detail_score is not None
+    ]
+    if analyzed_frames:
+        lighting_values = [
+            frame.lighting_score for frame in analyzed_frames if frame.lighting_score is not None
+        ]
+        detail_values = [
+            frame.detail_score for frame in analyzed_frames if frame.detail_score is not None
+        ]
+        lighting = sum(lighting_values) / len(lighting_values) if lighting_values else 0.45
+        blur = 1 - (sum(detail_values) / len(detail_values)) if detail_values else 0.55
+        motion_stability = _compute_motion_stability(analyzed_frames)
+        return QualityMetrics(
+            lighting=max(0.0, min(1.0, lighting)),
+            blur=max(0.0, min(1.0, blur)),
+            motion_stability=max(0.0, min(1.0, motion_stability)),
+        )
+
+    consistent_dimensions = len({(frame.width, frame.height) for frame in attempt.frames}) == 1
     return QualityMetrics(
         lighting=0.45,
         blur=0.55,
@@ -810,6 +1017,20 @@ __all__ = [
     "SessionVerificationFlow",
     "VerificationFlowError",
 ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

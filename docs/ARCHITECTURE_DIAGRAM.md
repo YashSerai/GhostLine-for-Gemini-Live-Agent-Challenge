@@ -1,57 +1,39 @@
-# Ghostline Architecture Diagram Source
+# Ghostline Architecture Diagram Notes
 
-This document provides the repo-native source and basic rendering instructions for the Ghostline architecture diagram.
+This document explains the diagram source files and the intended architectural story.
 
-## Source File
-
-The Mermaid source lives at:
+## Source Files
 
 - [docs/ARCHITECTURE_DIAGRAM.mmd](docs/ARCHITECTURE_DIAGRAM.mmd)
+- [docs/ARCHITECTURE_DIAGRAM.png](docs/ARCHITECTURE_DIAGRAM.png)
 
-## What The Diagram Shows
+## What The Diagram Should Communicate
 
-The diagram covers the full implemented architecture including:
+### Client
 
-### Frontend (React + Vite + TypeScript)
-- Onboarding splash screen
-- Hotline shell with grounding HUD, transcript layer, task controls
-- Camera + mic capture with staged frame sampler and room scan streamer (~1 fps)
-- Session timer (MM:SS), containment score bar, and share report button
-- Demo mode with rehearsal harness
+- splash screen with `Launch Demo Mode` and `Launch Regular Mode`
+- live hotline shell with transcript, camera view, controls, and grounding HUD
+- microphone capture and operator audio playback
+- room-scan frame capture and task-monitoring frame capture
+- ready-to-verify capture flow and case report UI
 
-### Backend (FastAPI on Cloud Run)
-- WebSocket gateway with session transport
-- Gemini Live audio bridge with context directives and barge-in flush
-- Authoritative session state machine with AI-observed affordances
-- Protocol planner with AI-driven CapabilityProfile from Gemini room scan
-- Gemini Vision engine for room scan analysis, verification frame analysis, ROOM_FEATURES parsing, and AI-reasoned recovery directives
-- Ready-to-Verify flow with task-aware verifier and case report generator
+### Backend
 
-### Google Cloud Services
-- Vertex AI / Gemini Live (`gemini-live-2.5-flash-native-audio`) for realtime voice, vision, and transcription
-- Firestore for session snapshots, case report persistence, and timing metadata
-- Cloud Logging for structured proof events
+- WebSocket gateway as the main runtime orchestrator
+- Gemini Live audio bridge for voice and image-frame delivery
+- authoritative session state machine for setup and task progression
+- protocol planner for demo or regular path selection
+- verification flow coordinating Gemini-based and deterministic checks
+- case report generation and session-state emission
 
-## Rendering Options
+### Cloud
 
-### Option 1: Mermaid Live Editor
-
-1. Open [https://mermaid.live](https://mermaid.live)
-2. Paste the contents of `docs/ARCHITECTURE_DIAGRAM.mmd`
-3. Export PNG or SVG
-
-### Option 2: Mermaid CLI
-
-```bash
-mmdc -i docs/ARCHITECTURE_DIAGRAM.mmd -o docs/ARCHITECTURE_DIAGRAM.png
-```
-
-### Option 3: GitHub / Devpost
-
-GitHub renders `.mmd` files natively. Embed in your Devpost submission by exporting a PNG from the Mermaid Live Editor.
+- Vertex AI / Gemini Live for live voice and vision
+- Firestore for session persistence
+- Cloud Logging for structured operational events
 
 ## Notes
 
-- The source uses `Ghostline` as the product name.
-- The diagram is intentionally judge-readable rather than overly infrastructure-dense.
-- Keep this file updated if the architecture changes.
+- avoid describing hidden rehearsal-only routes or harnesses unless they are actively used
+- avoid overstating structured room-feature extraction beyond the active runtime path
+- keep the diagram readable for judges rather than exhaustive for maintainers

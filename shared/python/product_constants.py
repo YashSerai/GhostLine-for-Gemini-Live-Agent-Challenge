@@ -77,40 +77,7 @@ VerificationResultStatus: TypeAlias = Literal[
 
 # The product doc lists these states in prose with spaces.
 # Snake_case is the shared machine format for frontend/backend code.
-SESSION_STATES: Final = (
-    "init",
-    "call_connected",
-    "consent",
-    "camera_request",
-    "calibration",
-    "task_assigned",
-    "waiting_ready",
-    "verifying",
-    "diagnosis_beat",
-    "recovery_active",
-    "swap_pending",
-    "paused",
-    "completed",
-    "case_report",
-    "ended",
-)
-SessionState: TypeAlias = Literal[
-    "init",
-    "call_connected",
-    "consent",
-    "camera_request",
-    "calibration",
-    "task_assigned",
-    "waiting_ready",
-    "verifying",
-    "diagnosis_beat",
-    "recovery_active",
-    "swap_pending",
-    "paused",
-    "completed",
-    "case_report",
-    "ended",
-]
+SESSION_STATES: Final = (`r`n    "init",`r`n    "call_connected",`r`n    "consent",`r`n    "microphone_request",`r`n    "name_request",`r`n    "name_confirmation",`r`n    "camera_request",`r`n    "room_sweep",`r`n    "calibration",`r`n    "task_assigned",`r`n    "waiting_ready",`r`n    "verifying",`r`n    "diagnosis_beat",`r`n    "recovery_active",`r`n    "swap_pending",`r`n    "paused",`r`n    "completed",`r`n    "case_report",`r`n    "ended",`r`n)`r`nSessionState: TypeAlias = Literal[`r`n    "init",`r`n    "call_connected",`r`n    "consent",`r`n    "microphone_request",`r`n    "name_request",`r`n    "name_confirmation",`r`n    "camera_request",`r`n    "room_sweep",`r`n    "calibration",`r`n    "task_assigned",`r`n    "waiting_ready",`r`n    "verifying",`r`n    "diagnosis_beat",`r`n    "recovery_active",`r`n    "swap_pending",`r`n    "paused",`r`n    "completed",`r`n    "case_report",`r`n    "ended",`r`n]
 
 CASE_REPORT_VERDICTS: Final = (
     "secured",
@@ -164,3 +131,4 @@ __all__ = [
     "UiStatusLabel",
     "VerificationResultStatus",
 ]
+

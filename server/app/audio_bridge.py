@@ -259,7 +259,7 @@ class SessionAudioBridge:
         without creating a new conversational turn for each one.
 
         Includes:
-        - Server-side minimum interval gate (1.5s)
+        - Server-side minimum interval gate (~1 fps)
         - Server-side frame brightness check (rejects black/dark frames)
 
         Returns True if the frame was sent successfully.
@@ -267,7 +267,7 @@ class SessionAudioBridge:
         import time
 
         now = time.monotonic()
-        if now - self._last_frame_sent_at < 1.5:
+        if now - self._last_frame_sent_at < 0.9:
             return False  # throttle — too soon since last frame
         self._last_frame_sent_at = now
 
@@ -366,8 +366,8 @@ class SessionAudioBridge:
                 f"\nThen, while looking at the feed, deliver this lore: "
                 f'"{task_def.baseline_lore}" '
                 f"\nThe FIRST few frames you see after this are your BASELINE. "
-                f"MEMORIZE what the scene looks like RIGHT NOW — this is your "
-                f"reference for verifying completion."
+                f"Use them as your working reference for the task. If the relevant "
+                f"area leaves frame later, say so clearly and ask the caller to show it again."
             )
 
         # Per-task baseline object validation using target_object
@@ -412,8 +412,10 @@ class SessionAudioBridge:
             "or progress you cannot actually see. If you are unsure whether something "
             "is in frame, say 'I cannot confirm that.' NEVER assume."
             "\n\nONGOING MONITORING RULES: "
+            "- If several consecutive frames look nearly identical or show no visible progress: 'The frame has not changed. Move now.' "
             "- If they seem idle for several frames: 'I see no movement. Begin now.' "
             "- If they claim something you CANNOT see: 'I do not see that. Show me.' "
+            "- If the task target leaves frame, say exactly what is missing: 'I cannot see the door.' 'I cannot see the surface.' 'I cannot see the mirror.' "
             "- If you see progress: One short acknowledgment, then silence. "
             "- ONLY describe what you ACTUALLY see. NEVER assume or invent objects. "
             "- If the task needs an object you do NOT see, say so: "
@@ -1100,6 +1102,15 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
+
+
+
+
+
+
+
+
+
 
 
 

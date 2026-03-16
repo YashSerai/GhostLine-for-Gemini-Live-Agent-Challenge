@@ -70,6 +70,16 @@ export function useSessionWebSocket(options?: UseSessionWebSocketOptions) {
 
   useEffect(() => manager.subscribe(setSnapshot), [manager]);
   useEffect(() => () => manager.disconnect(), [manager]);
+  useEffect(() => {
+    if (options?.demoMode !== undefined) {
+      manager.updateClientConnectPayload({ demoMode: options.demoMode });
+    }
+  }, [manager, options?.demoMode]);
+  useEffect(() => {
+    if (options?.clientConnectPayload) {
+      manager.updateClientConnectPayload(options.clientConnectPayload);
+    }
+  }, [manager, options?.clientConnectPayload]);
 
   const connect = () => manager.connect();
   const disconnect = () => manager.disconnect();
@@ -104,3 +114,4 @@ export function useSessionWebSocket(options?: UseSessionWebSocketOptions) {
     sessionUrl: managerOptions.url,
   };
 }
+

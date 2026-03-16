@@ -19,6 +19,7 @@ SESSION_MESSAGE_TYPES: Final[tuple[str, ...]] = (
     "swap_request",
     "pause",
     "stop",
+    "client_event",
 )
 
 _ALLOWED_TOP_LEVEL_KEYS: Final[frozenset[str]] = frozenset(

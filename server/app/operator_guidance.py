@@ -11,6 +11,7 @@ from .task_helpers import InvalidTaskIdError, get_task_by_id
 OperatorGuidanceBeat: TypeAlias = Literal[
     "microphone_request",
     "mic_confirmed",
+    "name_confirmation",
     "camera_request",
     "room_sweep",
     "calibration_acknowledged",
@@ -62,6 +63,7 @@ class NormalModeOperatorGuidanceOrchestrator:
         self._last_verification_attempt_id: str | None = None
         self._last_case_report_id: str | None = None
         self._last_calibration_captured_at: str | None = None
+        self._last_pending_caller_name: str | None = None
 
     def consume_envelope(
         self,
@@ -79,16 +81,25 @@ class NormalModeOperatorGuidanceOrchestrator:
             return (directive,) if directive is not None else ()
         return ()
 
-    def build_microphone_request_guidance(self) -> OperatorGuidanceDirective:
+    def build_microphone_request_guidance(
+        self,
+        *,
+        browser_mic_permission: str | None,
+    ) -> OperatorGuidanceDirective:
+        if _is_granted_permission(browser_mic_permission):
+            text = (
+                "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
+                "I can see your microphone permission is already available. Press the Grant Microphone Access button now so I can hear you."
+            )
+        else:
+            text = (
+                "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
+                "Press the Grant Microphone Access button now and accept the browser popup so I can hear you."
+            )
         return OperatorGuidanceDirective(
             beat="microphone_request",
-            text=(
-                "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
-                "I need explicit permission to hear you. Please press the "
-                "'Grant Microphone Access' button on your interface now."
-            ),
+            text=text,
         )
-
     def build_mic_confirmed_guidance(self) -> OperatorGuidanceDirective:
         return OperatorGuidanceDirective(
             beat="mic_confirmed",
@@ -98,24 +109,48 @@ class NormalModeOperatorGuidanceOrchestrator:
             ),
         )
 
-    def build_camera_request_guidance(self) -> OperatorGuidanceDirective:
+    def build_name_confirmation_guidance(
+        self,
+        caller_name: str | None,
+    ) -> OperatorGuidanceDirective:
+        name = caller_name or "that"
         return OperatorGuidanceDirective(
-            beat="camera_request",
+            beat="name_confirmation",
             text=(
-                "Address the caller as Mr or Mrs followed by the name they "
-                "just gave you. Then say: Now I need the room feed. I need deliberate permission. "
-                "Please press the Grant Camera Access button so I can see what we're working with."
+                f"I heard {name}. If that is correct, say yes. If not, say your name again clearly."
             ),
         )
-
+    def build_camera_request_guidance(
+        self,
+        *,
+        caller_name: str | None,
+        browser_camera_permission: str | None,
+    ) -> OperatorGuidanceDirective:
+        opener = _build_caller_address(caller_name, fallback="Good")
+        if _is_granted_permission(browser_camera_permission):
+            text = (
+                f"{opener}. I can see your camera permission is already available. "
+                "Press the Grant Camera Access button now so I can see the room feed."
+            )
+        else:
+            text = (
+                f"{opener}. Now I need the room feed. "
+                "Press the Grant Camera Access button and accept the browser popup so I can see what we are working with."
+            )
+        return OperatorGuidanceDirective(
+            beat="camera_request",
+            text=text,
+        )
     def build_room_sweep_guidance(self) -> OperatorGuidanceDirective:
         return OperatorGuidanceDirective(
             beat="room_sweep",
             text=(
                 "Good. Now stand in the center of the room and slowly pan the camera around "
                 "in a full circle. Take about five seconds for a 360-degree view. "
+                "Keep the doorway, mirrors, sinks, tables, and lights in frame when you can. "
                 "Make sure the room is well-lit and the camera is steady. "
-                "I need a clear feed — if the image is too dark or blurry, I will ask you to try again. "
+                "If a doorway, mirror, or work surface matters later and I cannot see it, I will stop you and ask you to show it again. "
+                "I need a clear feed - if the image is too dark or blurry, I will ask you to try again. "
                 "I need to scan the full room before we begin containment."
             ),
         )
@@ -124,11 +159,10 @@ class NormalModeOperatorGuidanceOrchestrator:
         return OperatorGuidanceDirective(
             beat="calibration_acknowledged",
             text=(
-                "Calibration sweep received. Our sensors are now processing the "
-                "spatial data. Initial readings show elevated residual activity "
-                "in this area. Spectral displacement concentrated near the "
-                "threshold zone. This is consistent with a Class-2 residential "
-                "haunting. Containment protocol is warranted. Stay with me."
+                "Calibration sweep received. I have enough of the room to begin containment. "
+                "This feed gives me enough environment detail to start, but I will call out any area I cannot see clearly. "
+                "Initial readings show elevated residual activity in this space. "
+                "Containment protocol is warranted. Stay with me."
             ),
         )
 
@@ -186,15 +220,36 @@ class NormalModeOperatorGuidanceOrchestrator:
         active_task_index = _int_or_none(payload.get("activeTaskIndex"))
         calibration_captured_at = _string_or_none(payload.get("calibrationCapturedAt"))
 
+        browser_mic_permission = _string_or_none(payload.get("browserMicPermission"))
+        browser_camera_permission = _string_or_none(payload.get("browserCameraPermission"))
+        caller_name = _string_or_none(payload.get("callerName"))
+        pending_caller_name = _string_or_none(payload.get("pendingCallerName"))
+
         if state_name == "microphone_request" and self._last_state != "microphone_request":
-            directives.append(self.build_microphone_request_guidance())
+            directives.append(
+                self.build_microphone_request_guidance(
+                    browser_mic_permission=browser_mic_permission,
+                )
+            )
 
         if state_name == "name_request" and self._last_state != "name_request":
             directives.append(self.build_mic_confirmed_guidance())
 
-        if state_name == "camera_request" and self._last_state != "camera_request":
-            directives.append(self.build_camera_request_guidance())
+        if state_name == "name_confirmation" and (
+            self._last_state != "name_confirmation"
+            or pending_caller_name != self._last_pending_caller_name
+        ):
+            directives.append(
+                self.build_name_confirmation_guidance(pending_caller_name)
+            )
 
+        if state_name == "camera_request" and self._last_state != "camera_request":
+            directives.append(
+                self.build_camera_request_guidance(
+                    caller_name=caller_name,
+                    browser_camera_permission=browser_camera_permission,
+                )
+            )
         if state_name == "room_sweep" and self._last_state != "room_sweep":
             directives.append(self.build_room_sweep_guidance())
 
@@ -229,6 +284,7 @@ class NormalModeOperatorGuidanceOrchestrator:
                 directives.append(closure_directive)
 
         self._last_state = state_name
+        self._last_pending_caller_name = pending_caller_name
         return tuple(directives)
 
     def _build_verification_reaction(
@@ -368,6 +424,16 @@ def _select_grounding_question(task_context: dict[str, Any]) -> str:
     return "Where is it strongest?"
 
 
+
+def _is_granted_permission(value: str | None) -> bool:
+    return value == "granted"
+
+
+def _build_caller_address(caller_name: str | None, *, fallback: str) -> str:
+    if caller_name is None:
+        return fallback
+    return f"Good, {caller_name}"
+
 def _string_or_none(value: Any) -> str | None:
     if isinstance(value, str):
         normalized = value.strip()
@@ -384,3 +450,9 @@ def _int_or_none(value: Any) -> int | None:
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return None
+
+
+
+
+
+

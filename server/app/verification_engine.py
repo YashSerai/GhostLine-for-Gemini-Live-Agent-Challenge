@@ -1,4 +1,4 @@
-﻿"""Shared verification engine contract for Prompt 22 and later real verification."""
+"""Shared verification engine contract for Prompt 22 and later real verification."""
 
 from __future__ import annotations
 
@@ -27,6 +27,11 @@ class VerificationFrameInput:
     sequence: int
     total_frames: int
     width: int
+    data: str | None = None
+    detail_score: float | None = None
+    lighting_score: float | None = None
+    motion_signature: tuple[float, ...] = ()
+    source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,8 @@ class VerificationContext:
     source: str
     started_at: str
     task_context: dict[str, Any]
+    baseline_frame: VerificationFrameInput | None = None
+    recent_task_frames: tuple[VerificationFrameInput, ...] = ()
 
 
 @dataclass(frozen=True)

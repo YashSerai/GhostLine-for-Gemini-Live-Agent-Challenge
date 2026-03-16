@@ -80,7 +80,13 @@ export interface SessionStateSnapshot {
   activeTaskIndex: number | null;
   allowedActions: SessionAllowedActions;
   blockReason: string | null;
+  browserCameraPermission: string | null;
+  browserMicPermission: string | null;
   caseReport: CaseReportArtifact | null;
+  callerName: string | null;
+  cameraButtonClicked: boolean;
+  cameraPermission: string | null;
+  cameraReady: boolean;
   classificationLabel: string | null;
   currentPathMode: string | null;
   currentStep: string | null;
@@ -93,11 +99,15 @@ export interface SessionStateSnapshot {
   hasSnapshot: boolean;
   interruptionCount: number;
   lastVerifiedItem: string | null;
+  microphonePermission: string | null;
+  microphoneStreaming: boolean;
+  pendingCallerName: string | null;
   plannedTasks: SessionPlannedTaskEntry[];
   recoveryAttemptCount: number | null;
   recoveryAttemptLimit: number | null;
   recoveryRerouteRequired: boolean;
   recoveryStep: string | null;
+  sessionId: string | null;
   state: string | null;
   swapCount: number;
   taskHistory: SessionTaskHistoryEntry[];
@@ -123,7 +133,13 @@ const IDLE_STATE: SessionStateSnapshot = {
   activeTaskIndex: null,
   allowedActions: IDLE_ALLOWED_ACTIONS,
   blockReason: null,
+  browserCameraPermission: null,
+  browserMicPermission: null,
   caseReport: null,
+  callerName: null,
+  cameraButtonClicked: false,
+  cameraPermission: null,
+  cameraReady: false,
   classificationLabel: null,
   currentPathMode: null,
   currentStep: null,
@@ -136,11 +152,15 @@ const IDLE_STATE: SessionStateSnapshot = {
   hasSnapshot: false,
   interruptionCount: 0,
   lastVerifiedItem: null,
+  microphonePermission: null,
+  microphoneStreaming: false,
+  pendingCallerName: null,
   plannedTasks: [],
   recoveryAttemptCount: null,
   recoveryAttemptLimit: null,
   recoveryRerouteRequired: false,
   recoveryStep: null,
+  sessionId: null,
   state: null,
   swapCount: 0,
   taskHistory: [],
@@ -496,6 +516,8 @@ export function useSessionState(
       }
 
       const payload = envelope.payload;
+      const sessionId =
+        typeof envelope.sessionId === "string" ? envelope.sessionId : null;
       const caseReport = parseCaseReport(payload.caseReport);
       const finalVerdict =
         payload.finalVerdict === "secured" ||
@@ -508,7 +530,13 @@ export function useSessionState(
         activeTaskIndex: getInteger(payload, "activeTaskIndex"),
         allowedActions: parseAllowedActions(payload.allowedActions),
         blockReason: getString(payload, "blockReason"),
+        browserCameraPermission: getString(payload, "browserCameraPermission"),
+        browserMicPermission: getString(payload, "browserMicPermission"),
         caseReport,
+        callerName: getString(payload, "callerName"),
+        cameraButtonClicked: payload.cameraButtonClicked === true,
+        cameraPermission: getString(payload, "cameraPermission"),
+        cameraReady: payload.cameraReady === true,
         classificationLabel: getString(payload, "classificationLabel"),
         currentPathMode: getString(payload, "currentPathMode"),
         currentStep: getString(payload, "currentStep"),
@@ -521,6 +549,9 @@ export function useSessionState(
         hasSnapshot: true,
         interruptionCount: getInteger(payload, "interruptionCount") ?? 0,
         lastVerifiedItem: getString(payload, "lastVerifiedItem"),
+        microphonePermission: getString(payload, "microphonePermission"),
+        microphoneStreaming: payload.microphoneStreaming === true,
+        pendingCallerName: getString(payload, "pendingCallerName"),
         plannedTasks: Array.isArray(payload.plannedTasks)
           ? payload.plannedTasks
               .map((item) => parsePlannedTaskEntry(item))
@@ -530,6 +561,7 @@ export function useSessionState(
         recoveryAttemptLimit: getInteger(payload, "recoveryAttemptLimit"),
         recoveryRerouteRequired: payload.recoveryRerouteRequired === true,
         recoveryStep: getString(payload, "recoveryStep"),
+        sessionId,
         state: getString(payload, "state"),
         swapCount: getInteger(payload, "swapCount") ?? 0,
         taskHistory: Array.isArray(payload.taskHistory)
@@ -546,3 +578,5 @@ export function useSessionState(
 
   return state;
 }
+
+

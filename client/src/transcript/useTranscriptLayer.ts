@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   SessionConnectionStatus,
@@ -7,6 +7,7 @@ import type {
 
 const MAX_TRANSCRIPT_ENTRIES = 40;
 const TRANSCRIPT_STORAGE_KEY = "ghostline.transcript.entries";
+const DUPLICATE_WINDOW_MS = 4000;
 
 export type TranscriptSpeaker = "operator" | "user";
 export type TranscriptEntryStatus = "partial" | "final";
@@ -63,10 +64,15 @@ function getPayloadString(
 function findPendingEntryIndex(
   entries: readonly TranscriptEntry[],
   speaker: TranscriptSpeaker,
+  source: string,
 ): number {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
-    if (entry.speaker === speaker && entry.status === "partial") {
+    if (
+      entry.speaker === speaker &&
+      entry.source === source &&
+      entry.status === "partial"
+    ) {
       return index;
     }
   }
@@ -134,11 +140,45 @@ function persistEntries(entries: readonly TranscriptEntry[]): void {
   }
 }
 
+function shouldReplaceDuplicateFinalEntry(
+  previousEntry: TranscriptEntry | null,
+  nextEntry: TranscriptEntry,
+): boolean {
+  if (previousEntry === null) {
+    return false;
+  }
+
+  if (
+    previousEntry.status !== "final" ||
+    nextEntry.status !== "final" ||
+    previousEntry.speaker !== nextEntry.speaker
+  ) {
+    return false;
+  }
+
+  if (previousEntry.text.trim().toLowerCase() !== nextEntry.text.trim().toLowerCase()) {
+    return false;
+  }
+
+  const previousTime = Date.parse(previousEntry.updatedAt);
+  const nextTime = Date.parse(nextEntry.updatedAt);
+  if (Number.isNaN(previousTime) || Number.isNaN(nextTime)) {
+    return false;
+  }
+
+  if (Math.abs(nextTime - previousTime) > DUPLICATE_WINDOW_MS) {
+    return false;
+  }
+
+  return previousEntry.source !== nextEntry.source;
+}
+
 export function useTranscriptLayer(
   options: UseTranscriptLayerOptions,
 ): TranscriptLayerState {
   const { connectionStatus, subscribeToEnvelopes } = options;
   const [entries, setEntries] = useState<TranscriptEntry[]>(loadStoredEntries);
+  const activeSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return subscribeToEnvelopes((envelope) => {
@@ -146,6 +186,10 @@ export function useTranscriptLayer(
         return;
       }
 
+      const incomingSessionId =
+        typeof envelope.sessionId === "string" && envelope.sessionId.trim().length > 0
+          ? envelope.sessionId
+          : null;
       const speaker = envelope.payload.speaker;
       const text = getPayloadString(envelope.payload, "text");
       if (!isTranscriptSpeaker(speaker) || !text) {
@@ -157,51 +201,70 @@ export function useTranscriptLayer(
       const updatedAt = new Date().toISOString();
 
       setEntries((currentEntries) => {
-        const nextEntries = [...currentEntries];
-        const pendingIndex = findPendingEntryIndex(nextEntries, speaker);
+        let nextEntries = currentEntries;
+
+        if (
+          incomingSessionId !== null &&
+          incomingSessionId !== activeSessionIdRef.current
+        ) {
+          activeSessionIdRef.current = incomingSessionId;
+          nextEntries = [];
+        }
+
+        const mutableEntries = [...nextEntries];
+        const pendingIndex = findPendingEntryIndex(mutableEntries, speaker, source);
 
         if (isFinal) {
+          const nextFinalEntry: TranscriptEntry = {
+            id: `${speaker}-${source}-${updatedAt}`,
+            speaker,
+            source,
+            status: "final",
+            text,
+            updatedAt,
+          };
+
           if (pendingIndex >= 0) {
-            nextEntries[pendingIndex] = {
-              ...nextEntries[pendingIndex],
+            mutableEntries[pendingIndex] = {
+              ...mutableEntries[pendingIndex],
               source,
               status: "final",
               text,
               updatedAt,
             };
+          } else if (
+            shouldReplaceDuplicateFinalEntry(
+              mutableEntries.length > 0 ? mutableEntries[mutableEntries.length - 1] : null,
+              nextFinalEntry,
+            )
+          ) {
+            mutableEntries[mutableEntries.length - 1] = nextFinalEntry;
           } else {
-            nextEntries.push({
-              id: `${speaker}-${updatedAt}`,
-              speaker,
-              source,
-              status: "final",
-              text,
-              updatedAt,
-            });
+            mutableEntries.push(nextFinalEntry);
           }
 
-          return trimTranscriptEntries(nextEntries);
+          return trimTranscriptEntries(mutableEntries);
         }
 
         if (pendingIndex >= 0) {
-          nextEntries[pendingIndex] = {
-            ...nextEntries[pendingIndex],
+          mutableEntries[pendingIndex] = {
+            ...mutableEntries[pendingIndex],
             source,
             text,
             updatedAt,
           };
-          return nextEntries;
+          return mutableEntries;
         }
 
-        nextEntries.push({
-          id: `${speaker}-${updatedAt}`,
+        mutableEntries.push({
+          id: `${speaker}-${source}-${updatedAt}`,
           speaker,
           source,
           status: "partial",
           text,
           updatedAt,
         });
-        return trimTranscriptEntries(nextEntries);
+        return trimTranscriptEntries(mutableEntries);
       });
     });
   }, [subscribeToEnvelopes]);
@@ -212,6 +275,7 @@ export function useTranscriptLayer(
   }, [connectionStatus, entries]);
 
   function resetTranscript(): void {
+    activeSessionIdRef.current = null;
     setEntries([]);
     persistEntries([]);
   }
@@ -223,3 +287,4 @@ export function useTranscriptLayer(
     resetTranscript,
   };
 }
+

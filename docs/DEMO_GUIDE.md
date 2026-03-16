@@ -1,117 +1,240 @@
-# GhostLine — Demo & Run Guide
+# Ghostline Demo Guide
 
-## Quick Start
+This is the primary demo document for Ghostline. Use it as the recording runbook for the judged product demo.
 
-### Prerequisites
-- **Python 3.11+** with `pip`
-- **Node.js 18+** with `npm`
-- **Google Cloud project** with Vertex AI and Firestore enabled
-- **Service account JSON** with Vertex AI permissions
+## 1. Demo Goal
 
-### Environment Setup
+The demo should prove that Ghostline is:
 
-```bash
-# Server — create .env in server/
-GOOGLE_CLOUD_PROJECT=your-gcp-project
-GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account.json
-VERTEX_AI_MODEL=gemini-live-2.5-flash-native-audio
-```
+- a live voice experience
+- interruptible
+- camera-aware
+- visually grounded during room scan and tasks
+- honest about verification
+- able to recover from failure without bluffing
 
-### Install & Run
+## 2. Use Demo Mode Only
 
-```bash
-# Terminal 1 — Server
-cd server
-python -m venv .venv
+Open the app at [http://127.0.0.1:5173](http://127.0.0.1:5173) and click `Launch Demo Mode`.
 
-# Activate the virtual environment
-# On Windows:
-.\.venv\Scripts\activate
-# On Mac/Linux:
-# source .venv/bin/activate
+Demo Mode keeps the same product structure as Regular Mode, but fixes the judged path so the run is repeatable.
 
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+Fixed demo task order:
 
-# Terminal 2 — Client
-cd client
-npm install
-npm run dev
-```
+1. `T2` Close Boundary
+2. `T5` Place Paper on Flat Surface
+3. `T14` Describe the Sound
+4. `T7` Speak Containment Phrase
 
-Open **http://localhost:5173** in Chrome.
+## 3. What Is Intentionally Scripted
 
----
+These beats are controlled for reliability:
 
-## Demo Mode
+- demo opener branches for mic permission state
+- fixed diagnosis beat around `T14`
+- one controlled near-failure on `T2`
+- one fixed interruption phrase
+- demo reset button in the UI
 
-Append `?demoMode=true` to the URL for a scripted, repeatable demo:
-```
-http://localhost:5173?demoMode=true
-```
+These parts are still live:
 
-Demo mode provides:
-- **Fixed task sequence** — same tasks every run
-- **Scripted operator lines** — polished Archivist dialogue
-- **Inter-task flavor text** — containment lore between verifications
-- **Auto-pass verification** — demo verifications succeed reliably
+- microphone access
+- name confirmation
+- camera access
+- room-scan vision frames
+- task-monitoring vision frames
+- verification results
+- recovery outcome
+- transcript and HUD state
 
----
+## 4. Room Setup Before Recording
 
-## Call Flow (What Judges Will See)
+Prepare the room so the fixed path is easy to show:
 
-1. **Start Call** → Click the orange button
-2. **Mic Test** → Grant microphone. Archivist confirms audio connection
-3. **Camera Access** → Grant camera. Archivist acknowledges visual feed
-4. **Room Scan** → Slowly pan camera left-to-right. Gemini describes the room and detects a "haunting presence"
-5. **Tasks Begin** → Archivist assigns containment tasks one by one
-6. **Verification** → Camera frames sent to Gemini for visual analysis
-7. **Flavor Text** → Archivist delivers containment lore between tasks
-8. **Case Report** → Session ends with a structured containment report
+- visible doorway or threshold for `T2`
+- visible flat surface for `T5`
+- room is bright enough for camera verification
+- camera can move between doorway and surface without confusion
+- headphones if possible
 
----
+Before you record, check:
 
-## Recording Tips (Phone)
+- operator audio is audible
+- transcript panel is readable
+- HUD is visible
+- camera feed is stable
+- backend is connected
 
-The UI is **mobile-optimized** for phone screen recordings:
+## 5. Exact Controlled Beats
 
-- Camera feed appears **first** (full-width, 16:9)
-- Debug panels are **hidden** on mobile
-- Buttons have **large touch targets** (56px)
-- Subtitles scroll in a compact panel below
-- HUD shows summary chips only — no detailed sections
+### Near-Failure Beat
 
-**Recommended setup:**
-1. Open the app on phone Chrome
-2. Start screen recording
-3. Click "Start Call"
-4. Follow the Archivist's instructions
-5. Pan camera slowly during room scan
-6. Complete 2-3 tasks for the demo
+This happens on `T2`.
 
----
+What you do:
 
-## Troubleshooting
+1. keep the doorway visible
+2. do not close it on the first verification attempt
+3. say `Ready to Verify.`
+4. let the operator reject the attempt honestly
+5. close the door fully
+6. say `Ready to Verify.` again
 
-| Issue | Fix |
-|-------|-----|
-| No audio from Archivist | Check browser autoplay policy — click anywhere first |
-| Camera not showing | Grant camera permission in browser settings |
-| Gemini not responding | Verify `GOOGLE_APPLICATION_CREDENTIALS` and project |
-| "Transport disconnected" | Server may not be running — check terminal |
-| Mobile layout not working | Ensure viewport width < 540px |
+What the demo should show:
 
----
+- an honest `unconfirmed` result
+- a clear recovery line
+- a successful retry
 
-## Key Files
+### Barge-In Beat
 
-| File | Purpose |
-|------|---------|
-| `server/app/main.py` | App startup, engine registration |
-| `server/app/websocket_gateway.py` | Session orchestration hub |
-| `server/app/gemini_verification.py` | Vision verification engine |
-| `server/app/audio_bridge.py` | Gemini Live session management |
-| `server/app/demo_dialogue.py` | Demo mode scripted lines |
-| `client/src/App.tsx` | Main UI component |
-| `client/src/media/useRoomScan.ts` | Room scan frame capture |
-| `client/src/styles.css` | Styling + mobile responsive |
+Use this exact phrase once during the diagnosis interpretation beat:
+
+`Archivist, wait. Say that again.`
+
+What the demo should show:
+
+- operator speech interrupted
+- turn state changes
+- transcript reflects the interruption
+- operator restates cleanly
+
+## 6. Step-By-Step Recording Flow
+
+### Start
+
+1. start screen recording
+2. show the splash briefly
+3. click `Launch Demo Mode`
+
+### Mic + Name
+
+4. grant microphone access
+5. say your name clearly
+6. confirm your name when asked
+
+Recommended lines:
+
+- `My name is ...`
+- `Yes.`
+
+### Camera + Room Scan
+
+7. grant camera access
+8. perform a slow room scan
+9. keep major room features visible and the motion steady
+
+Recommended spoken line only if needed:
+
+- `The doorway is in front of me.`
+
+### Task 1: T2 Close Boundary
+
+10. keep the doorway visible
+11. intentionally leave it open
+12. say `Ready to Verify.`
+13. let the first verify fail
+14. close the door fully
+15. say `Ready to Verify.` again
+
+### Task 2: T5 Place Paper on Flat Surface
+
+16. place the paper clearly on the visible surface
+17. hold still when verifying
+18. say `Ready to Verify.`
+
+### Task 3: T14 Describe the Sound
+
+19. answer briefly when asked what the sound resembled
+
+Recommended line:
+
+- `It sounded like it came from the doorway.`
+
+### Barge-In
+
+20. wait for the diagnosis interpretation line
+21. interrupt once with:
+
+`Archivist, wait. Say that again.`
+
+### Task 4: T7 Speak Containment Phrase
+
+22. follow the final task instructions cleanly
+23. complete the phrase and hold framing steady as needed
+
+### Ending
+
+24. let the case report render fully
+25. hold on the report for a few seconds
+26. stop recording
+
+## 7. What Must Be Visible In The Video
+
+A good judged take clearly shows:
+
+- mode selection starts the call immediately
+- in-call permission requests
+- transcript updating live
+- room scan commentary
+- HUD changing with the task flow
+- one honest failed verification
+- one clean recovery
+- one clear interruption moment
+- final case report
+
+## 8. Recommended User Lines
+
+Keep user speech short and repeatable:
+
+- `I need containment guidance.`
+- `My name is ...`
+- `Yes.`
+- `Ready to Verify.`
+- `It sounded like it came from the doorway.`
+- `Archivist, wait. Say that again.`
+
+## 9. Demo Timing Target
+
+Stay under `4:00` total.
+
+Recommended pacing:
+
+- `0:00-0:15` splash and call start
+- `0:15-0:40` mic, name, camera
+- `0:40-1:00` room scan
+- `1:00-1:45` `T2` with fail then retry
+- `1:45-2:15` `T5`
+- `2:15-2:40` `T14` diagnosis beat
+- `2:40-3:00` barge-in
+- `3:00-3:25` `T7`
+- `3:25-3:50` case report
+
+## 10. What To Verify Right Before Recording
+
+Check all of these:
+
+- call connects on mode selection
+- operator audio works
+- transcript updates
+- camera feed is live
+- room scan reaches the backend
+- `Ready to Verify` works
+- `unconfirmed` can appear on the first `T2` attempt
+- retry can succeed
+- interruption works once
+- case report renders at the end
+
+## 11. If A Take Drifts
+
+- use `Demo Reset`
+- restart from the root URL
+- do not improvise around the fixed beats during the judged take
+- if the interruption misses, reset and do another take
+- if the first `T2` attempt accidentally succeeds, reset and redo the demo
+
+## 12. Related Docs
+
+- [docs/HACKATHON_SUBMISSION_GUIDE.md](docs/HACKATHON_SUBMISSION_GUIDE.md)
+- [docs/DEMO_MODE.md](docs/DEMO_MODE.md)
+- [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md)

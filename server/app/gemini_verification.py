@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
+import re
 from typing import Any
 
 from .gemini_live import GeminiLiveSession, GeminiLiveSessionError
@@ -12,6 +14,7 @@ from .verification_engine import (
     ConfidenceBand,
     VerificationContext,
     VerificationDecision,
+    VerificationEngine,
     VerificationEngineError,
     VerificationResultStatus,
 )
@@ -180,18 +183,7 @@ ROOM_SCAN_ANALYSIS_PROMPT = (
 
 
 class GeminiVisionVerificationEngine:
-    """Verification engine that sends captured frames to Gemini for real visual analysis.
-
-    Uses the existing Gemini Live session's ``send_image_frame`` method to send
-    JPEG frames and ``send_text_input`` to provide the analysis prompt.
-    Gemini responds through the normal audio/text output channel which the
-    audio bridge's event drain loop picks up.
-
-    For structured decisions, this engine sends the frame + prompt, then returns
-    a decision based on the task tier and verification class.  The actual visual
-    reasoning happens in the Gemini model — we send the frame so the model has
-    real visual context for its spoken response.
-    """
+    """Hybrid verifier: Gemini live sees the frame and the backend parses the result."""
 
     def __init__(
         self,
@@ -199,11 +191,14 @@ class GeminiVisionVerificationEngine:
         session_id: str,
         gemini_session: GeminiLiveSession | None = None,
         frame_data_store: dict[str, list[str]] | None = None,
+        fallback_engine: VerificationEngine | None = None,
     ) -> None:
         self.session_id = session_id
         self._gemini_session = gemini_session
         self._frame_data_store = frame_data_store or {}
         self._last_observation: str | None = None
+        self._fallback_engine = fallback_engine
+        self._pending_analysis_future: asyncio.Future[str] | None = None
 
     @property
     def last_observation(self) -> str | None:
@@ -216,6 +211,112 @@ class GeminiVisionVerificationEngine:
     def store_frame_data(self, attempt_id: str, frames: list[str]) -> None:
         """Store base64 frame data from the verification window."""
         self._frame_data_store[attempt_id] = frames
+
+    def observe_operator_transcript(
+        self,
+        text: str,
+        *,
+        source: str | None,
+        is_final: bool,
+    ) -> None:
+        if source != "gemini_live" or not is_final:
+            return
+
+        normalized = text.strip()
+        if not normalized:
+            return
+
+        self._last_observation = normalized
+        pending = self._pending_analysis_future
+        if pending is not None and not pending.done():
+            pending.set_result(normalized)
+
+    def _decode_frame_bytes(
+        self,
+        frame_base64: str,
+    ) -> bytes | None:
+        try:
+            image_bytes = base64.b64decode(frame_base64)
+        except Exception:
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "gemini_vision_decode_failed",
+                session_id=self.session_id,
+            )
+            return None
+
+        if not image_bytes:
+            return None
+        return image_bytes
+
+    def _is_usable_frame_bytes(
+        self,
+        image_bytes: bytes,
+        *,
+        context_label: str,
+    ) -> bool:
+        _MIN_SIZE = 800
+        _MIN_BRIGHTNESS = 20
+        if len(image_bytes) < _MIN_SIZE:
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "frame_for_analysis_rejected_small",
+                session_id=self.session_id,
+                context=context_label,
+                frame_bytes=len(image_bytes),
+            )
+            return False
+
+        start = len(image_bytes) // 4
+        end = start + min(200, len(image_bytes) // 2)
+        sample = image_bytes[start:end]
+        if sample and sum(sample) / len(sample) < _MIN_BRIGHTNESS:
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "frame_for_analysis_rejected_dark",
+                session_id=self.session_id,
+                context=context_label,
+            )
+            return False
+
+        return True
+
+    async def _send_image_bytes(
+        self,
+        image_bytes: bytes,
+        *,
+        mime_type: str = "image/jpeg",
+        context_label: str,
+    ) -> bool:
+        if self._gemini_session is None or self._gemini_session.is_closed:
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "gemini_vision_no_session",
+                session_id=self.session_id,
+                context=context_label,
+            )
+            return False
+
+        try:
+            await self._gemini_session.send_image_frame(
+                image_bytes,
+                mime_type=mime_type,
+            )
+            return True
+        except GeminiLiveSessionError as exc:
+            log_event(
+                LOGGER,
+                logging.ERROR,
+                "gemini_vision_send_failed",
+                session_id=self.session_id,
+                context=context_label,
+                detail=str(exc),
+            )
+            return False
 
     async def send_frame_for_analysis(
         self,
@@ -230,52 +331,27 @@ class GeminiVisionVerificationEngine:
 
         Returns True if the frame was sent successfully.
         """
-        if self._gemini_session is None or self._gemini_session.is_closed:
-            log_event(
-                LOGGER,
-                logging.WARNING,
-                "gemini_vision_no_session",
-                session_id=self.session_id,
-                context=context_label,
-            )
+        image_bytes = self._decode_frame_bytes(frame_base64)
+        if image_bytes is None:
+            return False
+        if not self._is_usable_frame_bytes(image_bytes, context_label=context_label):
+            return False
+
+        prompt = self._build_prompt(
+            task_id,
+            task_name,
+            context_label,
+            has_baseline=False,
+        )
+        sent = await self._send_image_bytes(
+            image_bytes,
+            mime_type=mime_type,
+            context_label=context_label,
+        )
+        if not sent or self._gemini_session is None:
             return False
 
         try:
-            image_bytes = base64.b64decode(frame_base64)
-        except Exception:
-            log_event(
-                LOGGER,
-                logging.WARNING,
-                "gemini_vision_decode_failed",
-                session_id=self.session_id,
-            )
-            return False
-
-        if not image_bytes:
-            return False
-
-        # Server-side brightness check — reject black/very dark frames
-        _MIN_SIZE = 800
-        _MIN_BRIGHTNESS = 20
-        if len(image_bytes) < _MIN_SIZE:
-            log_event(LOGGER, logging.INFO, "frame_for_analysis_rejected_small",
-                      session_id=self.session_id, frame_bytes=len(image_bytes))
-            return False
-        start = len(image_bytes) // 4
-        end = start + min(200, len(image_bytes) // 2)
-        sample = image_bytes[start:end]
-        if sample and sum(sample) / len(sample) < _MIN_BRIGHTNESS:
-            log_event(LOGGER, logging.INFO, "frame_for_analysis_rejected_dark",
-                      session_id=self.session_id)
-            return False
-
-        prompt = self._build_prompt(task_id, task_name, context_label)
-
-        try:
-            await self._gemini_session.send_image_frame(
-                image_bytes,
-                mime_type=mime_type,
-            )
             await self._gemini_session.send_text_input(prompt)
             log_event(
                 LOGGER,
@@ -294,55 +370,142 @@ class GeminiVisionVerificationEngine:
                 logging.ERROR,
                 "gemini_vision_send_failed",
                 session_id=self.session_id,
+                context=context_label,
                 detail=str(exc),
             )
             return False
-
     async def evaluate(
         self,
         context: VerificationContext,
     ) -> VerificationDecision:
-        """Evaluate a verification attempt using Gemini vision.
-
-        Sends the best captured frame to Gemini for visual analysis, then
-        returns a decision based on the task's verification class and tier.
-        The AI's actual visual reasoning comes through as spoken/transcribed
-        output via the audio bridge.
-        """
+        """Evaluate using Gemini live first, then deterministic fallback."""
         task_context = context.task_context
         task_id = task_context.get("taskId")
         task_name = task_context.get("taskName")
-        task_tier = task_context.get("taskTier")
         verification_class = task_context.get("verificationClass")
 
-        # Try to send the best frame to Gemini for visual analysis
-        frame_sent = False
-        stored_frames = self._frame_data_store.pop(context.attempt_id, [])
-        if stored_frames:
-            # Send the middle frame (most likely to be stable)
-            best_frame_index = len(stored_frames) // 2
-            frame_sent = await self.send_frame_for_analysis(
-                stored_frames[best_frame_index],
-                task_id=task_id,
-                task_name=task_name,
-            )
+        if verification_class == "self_report":
+            return await self._fallback_or_default(context)
 
-        # Build the decision based on quality metrics + whether we could send the frame
-        return self._build_decision(
-            task_id=task_id,
-            task_name=task_name,
-            task_tier=task_tier,
-            verification_class=verification_class,
-            quality_metrics=context.quality_metrics,
-            frame_sent=frame_sent,
-            context=context,
+        stored_frames = self._frame_data_store.pop(context.attempt_id, [])
+        verification_frames = [
+            frame
+            for frame in context.frames
+            if isinstance(frame.data, str) and frame.data.strip()
+        ]
+        selected_frame = (
+            verification_frames[len(verification_frames) // 2]
+            if verification_frames
+            else None
+        )
+        current_frame_base64 = (
+            selected_frame.data
+            if selected_frame is not None and isinstance(selected_frame.data, str)
+            else (stored_frames[len(stored_frames) // 2] if stored_frames else None)
+        )
+        current_mime_type = (
+            selected_frame.mime_type if selected_frame is not None else "image/jpeg"
+        )
+        if not isinstance(current_frame_base64, str) or not current_frame_base64.strip():
+            return await self._fallback_or_default(context)
+
+        current_image_bytes = self._decode_frame_bytes(current_frame_base64)
+        if current_image_bytes is None:
+            return await self._fallback_or_default(context)
+        if not self._is_usable_frame_bytes(current_image_bytes, context_label="verification"):
+            return await self._fallback_or_default(context)
+
+        baseline_frame = context.baseline_frame
+        baseline_image_bytes: bytes | None = None
+        baseline_mime_type = "image/jpeg"
+        if (
+            baseline_frame is not None
+            and isinstance(baseline_frame.data, str)
+            and baseline_frame.data.strip()
+        ):
+            decoded_baseline = self._decode_frame_bytes(baseline_frame.data)
+            if decoded_baseline is not None and self._is_usable_frame_bytes(
+                decoded_baseline,
+                context_label="verification_baseline",
+            ):
+                baseline_image_bytes = decoded_baseline
+                baseline_mime_type = baseline_frame.mime_type
+
+        prompt = self._build_prompt(
+            task_id,
+            task_name,
+            "verification",
+            has_baseline=baseline_image_bytes is not None,
         )
 
+        self._pending_analysis_future = asyncio.get_running_loop().create_future()
+        try:
+            if baseline_image_bytes is not None:
+                baseline_sent = await self._send_image_bytes(
+                    baseline_image_bytes,
+                    mime_type=baseline_mime_type,
+                    context_label="verification_baseline",
+                )
+                if not baseline_sent:
+                    baseline_image_bytes = None
+
+            current_sent = await self._send_image_bytes(
+                current_image_bytes,
+                mime_type=current_mime_type,
+                context_label="verification",
+            )
+            if not current_sent or self._gemini_session is None:
+                return await self._fallback_or_default(context)
+
+            await self._gemini_session.send_text_input(prompt)
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "gemini_vision_verification_requested",
+                session_id=self.session_id,
+                task_id=task_id,
+                task_name=task_name,
+                has_baseline=baseline_image_bytes is not None,
+                verification_frame_count=len(verification_frames),
+            )
+
+            transcript = await self._await_analysis_transcript()
+            parsed = self._parse_verification_transcript(
+                transcript,
+                task_name=task_name,
+            )
+            if parsed is not None:
+                return parsed
+
+            fallback = await self._fallback_or_default(context)
+            notes = fallback.notes or ""
+            notes = f"Gemini response was ambiguous ({transcript!r}). {notes}".strip()
+            return VerificationDecision(
+                block_reason=fallback.block_reason,
+                confidence_band=fallback.confidence_band,
+                is_mock=fallback.is_mock,
+                last_verified_item=fallback.last_verified_item,
+                mock_label=fallback.mock_label,
+                notes=notes,
+                reason=fallback.reason,
+                status=fallback.status,
+            )
+        except VerificationEngineError:
+            return await self._fallback_or_default(context)
+        except GeminiLiveSessionError:
+            return await self._fallback_or_default(context)
+        finally:
+            pending = self._pending_analysis_future
+            self._pending_analysis_future = None
+            if pending is not None and not pending.done():
+                pending.cancel()
     def _build_prompt(
         self,
         task_id: str | None,
         task_name: str | None,
         context_label: str,
+        *,
+        has_baseline: bool,
     ) -> str:
         if context_label == "room_scan":
             return ROOM_SCAN_ANALYSIS_PROMPT
@@ -352,91 +515,156 @@ class GeminiVisionVerificationEngine:
         else:
             base_prompt = _DEFAULT_VERIFICATION_PROMPT
 
-        # Look up per-task completion check for before/after comparison
         from .task_library import TASK_LIBRARY
+
         completion_check = ""
         if task_id is not None:
             for t in TASK_LIBRARY:
                 if t.id == task_id and t.completion_check:
                     completion_check = (
-                        f" BEFORE/AFTER CHECK: You saw the room BEFORE this task "
-                        f"started. {t.completion_check} Compare what you see NOW "
-                        f"to what you saw BEFORE. If the scene has NOT meaningfully "
-                        f"changed, this task is NOT done — say so clearly."
+                        f" BEFORE/AFTER CHECK: {t.completion_check} "
+                        "If the relevant object or area is not visible in the current frame, "
+                        "say that clearly instead of guessing."
                     )
                     break
 
-        return (
-            f"VERIFICATION_ANALYSIS: {base_prompt}{completion_check} "
-            "Based on what you see, state whether the task appears completed. "
-            "Be honest — if the frame is too dark, blurry, or you cannot "
-            "confirm the task, say so clearly. Do not bluff."
+        comparison_instructions = (
+            " Two images are being sent in order. IMAGE 1 is the BASELINE from before the task. "
+            "IMAGE 2 is the CURRENT verification frame. Compare them directly. "
+            "If IMAGE 2 does not clearly show the relevant area, say exactly what you cannot see."
+            if has_baseline
+            else " You are only receiving the CURRENT verification frame. Do not assume prior state you cannot see."
         )
 
-    def _build_decision(
+        task_reference = (
+            f" The task is '{task_name}'."
+            if isinstance(task_name, str) and task_name.strip()
+            else ""
+        )
+
+        return (
+            f"VERIFICATION_ANALYSIS: {base_prompt}{completion_check}{comparison_instructions}{task_reference} "
+            "Based on what you can actually see, state whether the task appears completed. "
+            "Start your spoken response with exactly one of these leads: "
+            "'CONFIRMED.' or 'NOT CONFIRMED.' or 'CANNOT VERIFY.' Then give one "
+            "short concrete reason grounded in the visible evidence. "
+            "Be honest. If the frame is too dark, blurry, out of frame, or unchanged from the baseline, say so clearly. "
+            "Do not bluff."
+        )
+    async def _await_analysis_transcript(self) -> str:
+        pending = self._pending_analysis_future
+        if pending is None:
+            raise VerificationEngineError("Gemini analysis future was not initialized.")
+        try:
+            return await asyncio.wait_for(pending, timeout=8.0)
+        except TimeoutError as exc:
+            raise VerificationEngineError(
+                "Gemini visual verification did not return a transcript in time."
+            ) from exc
+
+    async def _fallback_or_default(
         self,
-        *,
-        task_id: str | None,
-        task_name: str | None,
-        task_tier: Any,
-        verification_class: str | None,
-        quality_metrics: Any,
-        frame_sent: bool,
         context: VerificationContext,
     ) -> VerificationDecision:
-        """Build a verification decision.
+        if self._fallback_engine is not None:
+            return await self._fallback_engine.evaluate(context)
 
-        The actual verification happens through Gemini's spoken analysis —
-        the AI sees the frames and verbally confirms or challenges the user.
-        We record the outcome as user_confirmed_only since the AI's verbal
-        feedback is the real verification, not a programmatic decision.
-        """
-        # Self-report tasks (like T7 - Speak Containment Phrase) are audio-only
-        if verification_class == "self_report":
+        task_name = context.task_context.get("taskName")
+        return VerificationDecision(
+            block_reason="visual_verification_unavailable",
+            confidence_band="low",
+            is_mock=False,
+            last_verified_item=None,
+            mock_label=None,
+            notes="Gemini vision fallback was unavailable for this verification attempt.",
+            reason=(
+                f"I cannot verify {task_name} from the current evidence."
+                if isinstance(task_name, str) and task_name.strip()
+                else "I cannot verify the current task from the available evidence."
+            ),
+            status="unconfirmed",
+        )
+
+    def _parse_verification_transcript(
+        self,
+        transcript: str,
+        *,
+        task_name: Any,
+    ) -> VerificationDecision | None:
+        normalized = transcript.strip()
+        if not normalized:
+            return None
+
+        lowered = normalized.lower()
+        negative_signals = (
+            "not confirmed",
+            "cannot verify",
+            "can't verify",
+            "cannot confirm",
+            "can't confirm",
+            "do not see",
+            "don't see",
+            "no change",
+            "still open",
+            "still appears",
+            "not readable",
+            "too dark",
+            "too blurry",
+            "show me",
+            "lost visual",
+        )
+        positive_signals = (
+            "confirmed",
+            "task complete",
+            "step complete",
+            "visibly closed",
+            "i can see the difference",
+        )
+
+        if any(signal in lowered for signal in negative_signals):
+            return VerificationDecision(
+                block_reason=normalized,
+                confidence_band="medium",
+                is_mock=False,
+                last_verified_item=None,
+                mock_label=None,
+                notes="Gemini live rejected the task based on the submitted verification frame.",
+                reason=normalized,
+                status="unconfirmed",
+            )
+
+        if any(signal in lowered for signal in positive_signals):
+            confidence_band: ConfidenceBand = (
+                "high"
+                if any(signal in lowered for signal in ("obvious", "clearly", "flush", "visible"))
+                else "medium"
+            )
+            resolved_name = task_name.strip() if isinstance(task_name, str) and task_name.strip() else None
+            return VerificationDecision(
+                block_reason=None,
+                confidence_band=confidence_band,
+                is_mock=False,
+                last_verified_item=resolved_name,
+                mock_label=None,
+                notes="Gemini live confirmed the task from the submitted verification frame.",
+                reason=normalized,
+                status="confirmed",
+            )
+
+        if re.search(r"\bconfirmed\b", lowered) and "not " not in lowered and "cannot " not in lowered:
+            resolved_name = task_name.strip() if isinstance(task_name, str) and task_name.strip() else None
             return VerificationDecision(
                 block_reason=None,
                 confidence_band="medium",
                 is_mock=False,
-                last_verified_item=task_name if isinstance(task_name, str) else None,
+                last_verified_item=resolved_name,
                 mock_label=None,
-                notes="Self-report task verified by caller audio. Gemini vision not required.",
-                reason="Caller completed the spoken task step.",
-                status="user_confirmed_only",
+                notes="Gemini live returned a confirmation line for the verification frame.",
+                reason=normalized,
+                status="confirmed",
             )
 
-        if frame_sent:
-            # Gemini has received the frame and will speak its analysis.
-            # Return UNCONFIRMED so the state machine sends the task to
-            # recovery_active — forcing the user to retry and actually show
-            # evidence. The AI will also verbally challenge via the
-            # verification prompt.
-            return VerificationDecision(
-                block_reason="ai_visual_verification_pending",
-                confidence_band="low",
-                is_mock=False,
-                last_verified_item=None,
-                mock_label=None,
-                notes=(
-                    f"Gemini vision analysis sent for {task_name}. "
-                    "AI is verifying visually. Task remains unconfirmed until "
-                    "the AI can see evidence of completion."
-                ),
-                reason=f"Visual verification pending for {task_name}. Show the completed task to the camera.",
-                status="unconfirmed",
-            )
-
-        # Frame could not be sent — fall back to user-confirmed
-        return VerificationDecision(
-            block_reason=None,
-            confidence_band="low",
-            is_mock=False,
-            last_verified_item=task_name if isinstance(task_name, str) else None,
-            mock_label=None,
-            notes="Gemini vision unavailable for this attempt. Falling back to caller confirmation.",
-            reason="Vision analysis unavailable; logged as caller-confirmed only.",
-            status="user_confirmed_only",
-        )
-
+        return None
 
 async def send_room_scan_frame(
     gemini_session: GeminiLiveSession,
@@ -567,4 +795,6 @@ AI_RECOVERY_DIRECTIVE_TEMPLATE = (
     "to fix the issue. Be concise and procedural. Do not repeat the task "
     "description — tell them exactly what to adjust."
 )
+
+
 
