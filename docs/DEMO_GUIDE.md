@@ -245,6 +245,5 @@ Optional recovery check:
 
 ## 13. Related Docs
 
-- [docs/HACKATHON_SUBMISSION_GUIDE.md](docs/HACKATHON_SUBMISSION_GUIDE.md)
 - [docs/DEMO_MODE.md](docs/DEMO_MODE.md)
-- [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md)
+- [README.md](../README.md)

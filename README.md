@@ -111,31 +111,18 @@ Local runtime expectations:
 - The separate Cloud proof video shows the backend running on Google Cloud Run during submission.
 - If you only want the judged flow, use `Launch Demo Mode` after both local processes are running.
 
-## Key Runtime Pieces
-
-- `client/`
-  - React/Vite UI, media capture, transcript, HUD, and control surface
-- `server/`
-  - FastAPI backend, WebSocket gateway, Gemini Live bridge, session state machine, verification flow
-- `shared/`
-  - mirrored product constants for frontend/backend state labels
-
 ## Important Docs
 
 - [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md)
   - primary judge-facing demo flow and run guide
 - [docs/DEMO_MODE.md](docs/DEMO_MODE.md)
   - concise runtime notes for demo-only behavior
-- [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md)
-  - concise submission copy and link placeholders
-- [docs/HACKATHON_SUBMISSION_GUIDE.md](docs/HACKATHON_SUBMISSION_GUIDE.md)
-  - ordered submission runbook from deploy to Devpost
-- [docs/CLOUD_PROOF_CHECKLIST.md](docs/CLOUD_PROOF_CHECKLIST.md)
-  - cloud proof recording checklist
-- [docs/CLOUD_RUN_DEPLOYMENT.md](docs/CLOUD_RUN_DEPLOYMENT.md)
-  - deployment instructions
 - [docs/AUTOMATED_DEPLOY.md](docs/AUTOMATED_DEPLOY.md)
-  - scripted Cloud Run deployment helper
+  - automated Cloud Run deployment proof for the bonus category
+- [docs/ARCHITECTURE_DIAGRAM.png](docs/ARCHITECTURE_DIAGRAM.png)
+  - judge-facing architecture asset
+- [docs/ARCHITECTURE_DIAGRAM.mmd](docs/ARCHITECTURE_DIAGRAM.mmd)
+  - Mermaid source for the architecture diagram
 
 ## Useful Endpoints
 

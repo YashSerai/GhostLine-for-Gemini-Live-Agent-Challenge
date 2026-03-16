@@ -1,35 +1,36 @@
 # Automated Cloud Run Deploy Helper
 
-This note documents the optional deploy helper added for Prompt 55.
+This document exists to prove the automated deployment bonus in the public repo.
 
 ## Script
 
-- [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\deploy-cloud-run.ps1](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\server\deploy-cloud-run.ps1)
+- `server/deploy-cloud-run.ps1`
+- `deploy.sh`
 
-## Scope
+## What It Does
 
-The script automates the backend Cloud Run deployment steps already described in the deployment guide:
+The helper automates the backend Cloud Run path:
 
-- set the active gcloud project
-- optionally create the Artifact Registry repository
-- submit the backend build
-- deploy the Cloud Run service with environment-driven settings
-- print the final service URL
+- sets the active gcloud project
+- optionally creates the Artifact Registry repository
+- submits the backend image build
+- deploys the Cloud Run service with environment-driven settings
+- prints the final service URL
 
-It is intentionally simple. It is not Terraform or full infrastructure-as-code.
+It is intentionally simple. It is not full infrastructure-as-code.
 
 ## Prerequisites
 
-Before using the script, confirm:
+Before using the helper, confirm:
 
 - `gcloud` is installed and on PATH
 - you are authenticated with `gcloud auth login`
+- these APIs are enabled on the project: `run.googleapis.com`, `artifactregistry.googleapis.com`, `cloudbuild.googleapis.com`, `aiplatform.googleapis.com`
 - if using a runtime service account, it already exists
-- the required APIs are enabled as described in [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_RUN_DEPLOYMENT.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_RUN_DEPLOYMENT.md)
 
 ## Required Environment Variables
 
-Set these before running the helper:
+Set at least:
 
 - `GOOGLE_CLOUD_PROJECT`
 
@@ -49,8 +50,6 @@ Recommended variables:
 - `DEMO_MODE_DEFAULT`
 - `CLOUD_RUN_SERVICE_ACCOUNT`
 - `CLOUD_RUN_TIMEOUT_SECONDS`
-
-Defaults are built into the script for the optional variables so the helper stays simple.
 
 The current submission build keeps session state in memory, so Firestore configuration is not required for the judged deploy path.
 
@@ -100,22 +99,18 @@ cd client
 & "C:\nvm4w\nodejs\npm.cmd" run dev
 ```
 
-That is enough for the challenge. The backend is the required Google Cloud deployment surface.
-
 ## How To Prove The Automation Bonus
 
 In the public repo, make sure judges can see:
 
 - `server/deploy-cloud-run.ps1`
+- `deploy.sh`
 - `docs/AUTOMATED_DEPLOY.md`
 
-On Devpost, add a short note like this:
-
-`Backend deployment to Cloud Run is automated with a repo-included deploy script: https://github.com/YashSerai/GhostLine-for-Gemini-Live-Agent-Challenge/blob/main/deploy.sh. Setup notes: https://github.com/YashSerai/GhostLine-for-Gemini-Live-Agent-Challenge/blob/main/docs/AUTOMATED_DEPLOY.md.`
+In Devpost, use direct GitHub links to the deploy script and this doc.
 
 ## Notes
 
-- The script uses environment variables instead of hardcoded project-specific values.
+- The helper uses environment variables instead of hardcoded project-specific values.
 - It is safe to keep as a post-MVP helper because it does not alter product logic.
-- For cloud-proof recording after deployment, use [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md).
-
+- The Cloud Run proof itself is already covered by the separate proof video.
