@@ -304,7 +304,7 @@ function buildRecoveryStep(
   }
 
   if (basis.includes("blurry") || basis.includes("blur")) {
-    return "Move closer, refocus, and retry the verification window.";
+    return "Move closer, refocus, and retry the verification capture.";
   }
 
   if (basis.includes("threshold") || basis.includes("boundary") || basis.includes("door")) {
@@ -425,7 +425,7 @@ function buildOperatorLine(
     return `I can't confirm that yet. ${reason}`;
   }
 
-  return "I can't confirm that yet. Adjust the setup and retry the verification window.";
+  return "I can't confirm that yet. Adjust the setup and retry the verification capture.";
 }
 
 function buildCardTitle(
@@ -449,7 +449,7 @@ function buildCardBody(
   recoveryStep: string | null,
 ): string {
   if (payload.status === "confirmed") {
-    return payload.reason ?? "The verification window produced a full visual confirmation.";
+    return payload.reason ?? "The verification capture produced a full visual confirmation.";
   }
 
   if (payload.status === "user_confirmed_only") {
@@ -460,7 +460,7 @@ function buildCardBody(
 
   const baseReason =
     payload.reason ??
-    "The verification window did not provide enough evidence to confirm the step.";
+    "The verification capture did not provide enough evidence to confirm the step.";
 
   if (payload.retryAllowed === false) {
     if (payload.suggestedPathMode) {
@@ -585,5 +585,6 @@ export function useVerificationResultState(
 
   return state;
 }
+
 
 

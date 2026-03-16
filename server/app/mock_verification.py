@@ -1,4 +1,4 @@
-﻿"""Temporary Prompt 22 mock verifier.
+"""Temporary Prompt 22 mock verifier.
 
 TODO(Prompt 23): Replace this module with the real task-aware verification
 engine. This file must stay isolated so mock verification cannot become
@@ -105,7 +105,7 @@ def _parse_task_tier(value: Any) -> int | None:
 def _parse_task_name(value: Any) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
-    return "Ready-to-Verify window"
+    return "Ready-to-Verify capture"
 
 
 def _build_block_reason(
@@ -156,3 +156,4 @@ def _build_notes(
         f"MOCK VERIFIER: Tier {task_tier} produced a {status} result using "
         "development-only mock verification rules."
     )
+

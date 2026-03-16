@@ -190,6 +190,9 @@ export function useCameraPreview(
           capturedAt: frame.capturedAt,
           width: frame.width,
           height: frame.height,
+          data: frame.data,
+          mimeType: frame.mimeType,
+          frameAnalysis: frame.analysis,
           lightingScore: frame.analysis.lightingScore,
           detailScore: frame.analysis.detailScore,
         });
@@ -261,4 +264,6 @@ export function useCameraPreview(
     videoRef,
   };
 }
+
+
 

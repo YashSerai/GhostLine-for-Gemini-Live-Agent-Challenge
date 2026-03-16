@@ -113,15 +113,15 @@ export function buildVerificationHudOverrides(
     case "pending":
     case "capturing_window":
       return {
-        protocolStep: createHudOverride("Ready to Verify window", "warning"),
+        protocolStep: createHudOverride("Ready to Verify capture", "warning"),
         verificationStatus: createHudOverride("Hold still - verification pending", "warning"),
-        blockReason: createHudOverride("Verification window in progress", "warning"),
+        blockReason: createHudOverride("Verification capture in progress", "warning"),
         recoveryStep: createHudOverride("Keep the frame steady for one second", "warning"),
       };
     case "uploading_frames":
       return {
         protocolStep: createHudOverride("Ready to Verify upload", "live"),
-        verificationStatus: createHudOverride("Uploading staged verification window", "live"),
+        verificationStatus: createHudOverride("Uploading captured verification frame", "live"),
         blockReason: createHudOverride("Waiting for backend frame intake", "live"),
         recoveryStep: createHudOverride("Hold the line while staged frames upload", "live"),
       };
@@ -161,14 +161,14 @@ export function buildVerificationControlCopy(
 
     if (verificationResult.retryAllowed === false) {
       if (verificationResult.suggestedPathMode !== null) {
-        return `Verification retries are exhausted for this task. Switch path mode to ${verificationResult.suggestedPathMode.replace(/_/g, " ")} before requesting another verification window.`;
+        return `Verification retries are exhausted for this task. Switch path mode to ${verificationResult.suggestedPathMode.replace(/_/g, " ")} before requesting another verification capture.`;
       }
 
       if (verificationResult.substituteTaskSuggestion !== null) {
-        return `Verification retries are exhausted for this task. Switch to ${verificationResult.substituteTaskSuggestion.taskName} before requesting another verification window.`;
+        return `Verification retries are exhausted for this task. Switch to ${verificationResult.substituteTaskSuggestion.taskName} before requesting another verification capture.`;
       }
 
-      return "Verification retries are exhausted for this task. Switch path mode or substitute the task before requesting another verification window.";
+      return "Verification retries are exhausted for this task. Switch path mode or substitute the task before requesting another verification capture.";
     }
 
     if (
@@ -186,12 +186,13 @@ export function buildVerificationControlCopy(
   }
 
   if (verificationPhase === "uploading_frames") {
-    return "Verification captured. Sending to backend.";
+    return "Verification frame captured. Sending to backend.";
   }
 
   if (verificationPhase === "captured") {
     return "Verification staged. Awaiting result.";
   }
 
-  return "Controls armed. Verification requests trigger a bounded hold-still capture window.";
+  return "Controls armed. Verification requests capture and send a single on-demand frame.";
 }
+

@@ -193,6 +193,7 @@ h2 {
   grid-template-columns: minmax(320px, 1fr) minmax(480px, 1.4fr) minmax(320px, 1fr);
   gap: 12px;
   flex: 1;
+  min-height: 0;
 }
 
 .left-column,
@@ -201,6 +202,7 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
 }
 
 .hud-panel {
@@ -218,6 +220,7 @@ h2 {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .operator-panel,
@@ -1413,7 +1416,11 @@ h1 {
 
 .subtitle-list {
   gap: 10px;
-  max-height: 300px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .camera-control-deck {
@@ -2024,3 +2031,5 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+

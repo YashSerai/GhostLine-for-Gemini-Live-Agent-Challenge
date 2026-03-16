@@ -281,7 +281,7 @@ function getOperatorPlaceholder(
   }
 
   if (isOperatorSpeaking) {
-    return "Operator audio is streaming live from Gemini Live now. The room feed remains staged locally so calibration and verification windows can capture still frames on demand.";
+    return "Operator audio is streaming live from Gemini Live now. The room feed remains staged locally so calibration and verification can capture still frames on demand.";
   }
 
   if (operatorTurnState === "interrupted") {
@@ -320,7 +320,7 @@ function getOperatorPlaceholder(
   }
 
   if (connectionStatus === "connected" && cameraReady && captureFrameCount === 0) {
-    return "I have confirmed camera access. Hold a wide view of the room from a corner or doorway. The scan completes once I have a few clear frames.";
+    return "I have confirmed camera access. Hold a wide view of the room from a corner or doorway, then say Ready to Verify.";
   }
 
   if (
@@ -413,7 +413,7 @@ function getPermissionRequestCopy(
       return {
         title: "Permissions Complete",
         body: isMicStreaming
-          ? "Microphone and camera were both granted in-call. Hold one steady wide shot of the room. The scan completes automatically after a few usable frames, then follow the assigned task exactly."
+          ? "Microphone and camera were both granted in-call. Hold one steady room shot, then say Ready to Verify when you want the room checked."
           : "Microphone and camera are both approved in-call. Resume the microphone stream when you are ready to continue.",
         tone: "ready",
       };
@@ -440,18 +440,18 @@ function getControlBarCopy(
   }
 
   if (verificationPhase === "pending" || verificationPhase === "capturing_window") {
-    return "Ready to Verify is active now. Hold still for one second while the bounded verification window is captured.";
+    return "Ready to Verify is active now. Hold still while a single verification frame is captured.";
   }
 
   if (verificationPhase === "uploading_frames") {
-    return "The bounded verification window was captured. Frame data is being sent to the backend now.";
+    return "The verification frame was captured. Frame data is being sent to the backend now.";
   }
 
   if (verificationPhase === "captured") {
-    return "The verification window is staged on the backend. This is a real Ready to Verify capture, not a continuous upload loop.";
+    return "The verification frame is staged on the backend. This is a real Ready to Verify capture, not a continuous upload loop.";
   }
 
-  return "Ready to Verify, swap, pause, and end now send structured WebSocket envelopes to the backend. Verification requests trigger a bounded hold-still capture window instead of a background stream.";
+  return "Ready to Verify, swap, pause, and end now send structured WebSocket envelopes to the backend. Verification requests capture and send a single on-demand frame instead of a background stream.";
 }
 
 function getVerificationPhaseLabel(phase: ReadyToVerifyPhase): string {
@@ -476,13 +476,13 @@ function getVerificationWindowCopy(
 ): string {
   switch (phase) {
     case "pending":
-      return "The backend opened a Ready to Verify window. The operator has asked the caller to hold still for one second.";
+      return "The backend opened a Ready to Verify capture. The operator is capturing a single verification frame now.";
     case "capturing_window":
-      return `Capturing a bounded one-second verification window now. ${localCapturedFrames} of ${expectedFrames} frames staged locally.`;
+      return `Capturing the verification frame now. ${localCapturedFrames} of ${expectedFrames} frame${expectedFrames === 1 ? "" : "s"} staged locally.`;
     case "uploading_frames":
-      return `The verification window is complete. Sending ${expectedFrames} staged frames plus task context to the backend.`;
+      return `The verification capture is complete. Sending ${expectedFrames} frame${expectedFrames === 1 ? "" : "s"} plus task context to the backend.`;
     case "captured":
-      return `The backend received the bounded verification window. ${expectedFrames} staged frames were delivered for the next verification phase.`;
+      return `The backend received the verification capture. ${expectedFrames} frame${expectedFrames === 1 ? "" : "s"} were delivered for the next verification phase.`;
     default:
       return "Ready to Verify stays idle until the user requests it by button or voice.";
   }
@@ -499,25 +499,25 @@ function getVerificationHudOverrides(verificationPhase: ReadyToVerifyPhase): {
     case "pending":
     case "capturing_window":
       return {
-        protocolStep: "Ready to Verify window",
+        protocolStep: "Ready to Verify capture",
         verificationStatus: "Hold still - verification pending",
-        blockReason: "Verification window in progress",
+        blockReason: "Verification capture in progress",
         recoveryStep: "Keep the frame steady for one second",
       };
     case "uploading_frames":
       return {
         protocolStep: "Ready to Verify upload",
-        verificationStatus: "Uploading staged verification window",
+        verificationStatus: "Uploading captured verification frame",
         blockReason: "Waiting for backend frame intake",
         recoveryStep: "Hold the line while staged frames upload",
       };
     case "captured":
       return {
-        protocolStep: "Verification window staged",
+        protocolStep: "Verification frame staged",
         verificationStatus: "Bounded capture complete",
         blockReason: "None active",
         recoveryStep: "Awaiting verification engine handoff",
-        lastVerifiedItem: "Verification window captured",
+        lastVerifiedItem: "Verification frame captured",
       };
     default:
       return {};
@@ -667,6 +667,16 @@ function App() {
     sendMessage: sendMessage,
   });
 
+
+  useEffect(() => {
+    return subscribeToEnvelopes((envelope) => {
+      if (envelope.type !== "room_verification_request") {
+        return;
+      }
+
+      void camera.captureFrame("calibration");
+    });
+  }, [camera, subscribeToEnvelopes]);
   const microphone = useMicrophoneBridge({
     connectionStatus: status,
     sendMessage: sendMessage,
@@ -995,6 +1005,16 @@ function App() {
     !verificationFlow.isBusy &&
     !verificationResult.awaitingDecision &&
     !isRecoveryRerouteRequired &&
+    !taskControls.readyToVerifyPending &&
+    !taskControls.pausePending &&
+    !taskControls.endSessionPending &&
+    !isDemoResetting;
+  const canReadyToVerifyRoom =
+    areTaskControlsArmed &&
+    sessionState.state === "room_sweep" &&
+    effectiveCameraReady &&
+    effectiveMicStreaming &&
+    !operatorAudio.isSpeaking &&
     !taskControls.readyToVerifyPending &&
     !taskControls.pausePending &&
     !taskControls.endSessionPending &&
@@ -1506,24 +1526,18 @@ function App() {
             <div className="camera-capture-panel">
 
               {camera.cameraReady &&
-              sessionState.state !== "task_assigned" &&
-              sessionState.state !== "waiting_ready" &&
-              sessionState.state !== "verifying" &&
-              sessionState.state !== "paused" &&
-              sessionState.state !== "ended" &&
+              sessionState.state === "room_sweep" &&
               sessionState.calibrationCapturedAt === null ? (
                 <div className="camera-action-row">
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={taskControls.endSessionPending || verificationFlow.isBusy}
+                    disabled={!canReadyToVerifyRoom}
                     onClick={() => {
                       void camera.captureFrame("calibration");
                     }}
                   >
-                    {camera.captureFrameCount > 0
-                      ? "Force Complete Scan (Fallback)"
-                      : "Force Complete Scan"}
+                    Ready to Verify Room
                   </button>
                 </div>
               ) : null}
@@ -1533,7 +1547,7 @@ function App() {
                   className={`capture-preview-card verification-window-card verification-window-card-${verificationFlow.phase}`}
                 >
                   <div className="capture-preview-header">
-                    <strong>Ready to Verify Window</strong>
+                    <strong>Ready to Verify Capture</strong>
                     <span>{getVerificationPhaseLabel(verificationFlow.phase)}</span>
                   </div>
                   <p className="verification-window-body">
@@ -1664,7 +1678,7 @@ function App() {
                       });
                     }}
                   >
-                    {taskControls.readyToVerifyPending ? "Verifying..." : "Mark Complete"}
+                    {taskControls.readyToVerifyPending ? "Verifying..." : "Ready to Verify"}
                   </button>
                 </div>
               </div>
@@ -1919,4 +1933,6 @@ function App() {
 }
 
 export default App;
+
+
 

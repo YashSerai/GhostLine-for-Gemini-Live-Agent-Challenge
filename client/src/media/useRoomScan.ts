@@ -1,10 +1,9 @@
 /**
- * useRoomScan captures camera frames at ~1fps during room setup and sends them
- * to the backend as `room_scan_frame` messages.
+ * useRoomScan retains local room snapshots for UI feedback during room setup.
  *
- * The operator now asks for one clear, wide room view rather than a full 360.
- * Dark or unreadable frames are still sent so Gemini can call them out,
- * while scan completion still waits for usable frames.
+ * Passive room frame streaming is disabled for the demo because it competes
+ * with live turn-taking. The backend now relies on explicit Ready-to-Verify
+ * captures instead of a background image loop.
  */
 
 import { useEffect, useRef, useState, type RefObject } from "react";
@@ -17,9 +16,7 @@ import type { CapturedFrame } from "./frameCapture";
 
 const SCAN_INTERVAL_MS = 1000;
 const SCAN_FRAME_QUALITY = 0.6;
-const ROOM_VIEW_CONFIRMATION_FRAMES = 3;
 const SNAPSHOT_INTERVAL_FRAMES = 3;
-const CALIBRATION_RETRY_INTERVAL_FRAMES = 3;
 
 const MIN_BRIGHTNESS = 15;
 const MIN_DETAIL = 0.05;
@@ -88,17 +85,18 @@ function getQualityReason(brightness: number, detail: number): RoomScanQualityRe
 }
 
 export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
-  const { calibrationCapturedAt, isScanning, connectionStatus, videoRef, canvasRef, sendMessage } = options;
+  const {
+    calibrationCapturedAt: _calibrationCapturedAt,
+    isScanning,
+    connectionStatus,
+    videoRef,
+    canvasRef,
+    sendMessage: _sendMessage,
+  } = options;
 
-  const sendMessageRef = useRef(sendMessage);
   const connectionStatusRef = useRef(connectionStatus);
   const usableFrameCountRef = useRef(0);
-  const calibrationRequestPendingRef = useRef(false);
   const [snapshots, setSnapshots] = useState<CapturedFrame[]>([]);
-
-  useEffect(() => {
-    sendMessageRef.current = sendMessage;
-  }, [sendMessage]);
 
   useEffect(() => {
     connectionStatusRef.current = connectionStatus;
@@ -108,18 +106,8 @@ export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
     if (isScanning) {
       setSnapshots([]);
       usableFrameCountRef.current = 0;
-      calibrationRequestPendingRef.current = false;
-      return;
     }
-
-    calibrationRequestPendingRef.current = false;
   }, [isScanning]);
-
-  useEffect(() => {
-    if (calibrationCapturedAt !== null) {
-      calibrationRequestPendingRef.current = false;
-    }
-  }, [calibrationCapturedAt]);
 
   useEffect(() => {
     if (!isScanning) {
@@ -162,23 +150,9 @@ export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
       }
 
       const qualityReason = getQualityReason(brightness, detail);
-      const roundedBrightness = Math.round(brightness);
-      const roundedDetail = Number(detail.toFixed(3));
-
-      sendMessageRef.current("room_scan_frame", {
-        data: base64,
-        capturedAt,
-        width: w,
-        height: h,
-        quality: qualityReason === null ? "usable" : "unusable",
-        qualityReason,
-        brightness: roundedBrightness,
-        detail: roundedDetail,
-      });
 
       if (qualityReason !== null) {
         usableFrameCountRef.current = 0;
-        calibrationRequestPendingRef.current = false;
         return;
       }
 
@@ -199,24 +173,6 @@ export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
       }
 
       usableFrameCountRef.current += 1;
-
-      if (usableFrameCountRef.current >= ROOM_VIEW_CONFIRMATION_FRAMES) {
-        const shouldRequestCalibration =
-          !calibrationRequestPendingRef.current ||
-          usableFrameCountRef.current % CALIBRATION_RETRY_INTERVAL_FRAMES === 0;
-
-        if (shouldRequestCalibration) {
-          calibrationRequestPendingRef.current = true;
-          sendMessageRef.current("calibration_status", {
-            status: "captured",
-            capturedAt,
-            width: w,
-            height: h,
-            brightness: roundedBrightness,
-            detail: roundedDetail,
-          });
-        }
-      }
     }, SCAN_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
@@ -224,4 +180,3 @@ export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
 
   return { snapshots };
 }
-

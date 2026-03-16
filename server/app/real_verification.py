@@ -27,7 +27,7 @@ _WORD_RE: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]+")
 
 @dataclass(frozen=True)
 class RealVerificationEngine:
-    """Deterministic task-aware verifier for Ready-to-Verify windows."""
+    """Deterministic task-aware verifier for Ready-to-Verify captures."""
 
     async def evaluate(
         self,
@@ -166,7 +166,7 @@ def _evaluate_boundary_task(
             reason=(
                 "The boundary view is clear and it changed enough from the baseline to confirm the task."
                 if requires_before_after
-                else "Boundary framing stayed visible and stable across the verification window."
+                else "Boundary framing stayed visible and stable across the verification capture."
             ),
             last_verified_item=task.name,
             notes="Boundary verification used threshold framing plus before/after visual evidence when required.",
@@ -195,7 +195,7 @@ def _evaluate_boundary_task(
     return _decision(
         status="unconfirmed",
         confidence_band="low",
-        reason="The boundary task could not be confirmed from the verification window.",
+        reason="The boundary task could not be confirmed from the verification capture.",
         block_reason=_visual_block_reason(context, prefer_threshold=True),
         notes="Boundary task requires visible threshold framing without bluffing partial visibility.",
     )
@@ -249,7 +249,7 @@ def _evaluate_illumination_task(
         status="unconfirmed",
         confidence_band="low",
         reason="The frame remained too dim for a full illumination confirmation.",
-        block_reason="The verification window is still too dark to confirm the illumination step honestly.",
+        block_reason="The verification capture is still too dark to confirm the illumination step honestly.",
         notes="Illumination tasks require measurable brightness improvement, not a guessed confirmation.",
     )
 def _evaluate_stabilization_task(
@@ -284,7 +284,7 @@ def _evaluate_stabilization_task(
         status="unconfirmed",
         confidence_band="low",
         reason="The frame was still too unstable to confirm the stabilization step.",
-        block_reason="The verification window remained too unstable or blurry to confirm stabilization.",
+        block_reason="The verification capture remained too unstable or blurry to confirm stabilization.",
         notes="Stabilization tasks require measurable steadiness instead of assumed compliance.",
     )
 
@@ -534,14 +534,14 @@ def _visual_block_reason(
 ) -> str:
     quality = context.quality_metrics
     if quality.lighting < 0.4:
-        return "The verification window was too dark to confirm this task honestly."
+        return "The verification capture was too dark to confirm this task honestly."
     if quality.motion_stability < 0.45:
-        return "The verification window was too unstable to confirm this task honestly."
+        return "The verification capture was too unstable to confirm this task honestly."
     if quality.blur > 0.6:
-        return "The verification window was too blurry to confirm this task honestly."
+        return "The verification capture was too blurry to confirm this task honestly."
     if prefer_threshold and context.current_path_mode != "threshold":
-        return "The verification window did not show a clear threshold or boundary framing."
-    return "The verification window did not provide enough reliable evidence to confirm this task."
+        return "The verification capture did not show a clear threshold or boundary framing."
+    return "The verification capture did not provide enough reliable evidence to confirm this task."
 
 
 def _word_count(text: str) -> int:
@@ -550,4 +550,5 @@ def _word_count(text: str) -> int:
 
 def _normalize_text(text: str) -> str:
     return " ".join(_WORD_RE.findall(text.lower().replace("\u2019", "'")))
+
 

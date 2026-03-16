@@ -25,6 +25,7 @@ export const SERVER_SESSION_MESSAGE_TYPES = [
   "verification_state",
   "verification_result",
   "session_state",
+  "room_verification_request",
 ] as const;
 
 export type ClientSessionMessageType =
@@ -66,4 +67,5 @@ export interface SessionManagerSnapshot {
 export type SessionEnvelopeListener = (
   envelope: SessionEnvelope<string>,
 ) => void;
+
 

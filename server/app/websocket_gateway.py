@@ -67,10 +67,10 @@ _ROOM_SCAN_REJECTION_LINES: dict[str, str] = {
     "too_blurry": "Too much blur. Hold the camera still so I can confirm the room.",
     "low_detail": "Too much blur. Hold the camera still so I can confirm the room.",
     "too_close": "The camera is too close. Pull back and show me the room from a corner or doorway.",
-    "too_narrow": "That view is too narrow. Step to a corner or doorway and hold one wide shot of the room.",
+    "too_narrow": "Step back a little and hold the camera steady so I can see more of the room.",
     "too_unstable": "The feed is unstable. Hold the camera still until the room stays steady.",
     "no_room_visible": "I still do not have the room in view. Turn the camera outward and show me the space.",
-    "insufficient_view": "I need a wider, steadier room view before we continue.",
+    "insufficient_view": "I need a clearer, steadier room view before we continue.",
     "unreadable": _ROOM_SCAN_REJECTION_LINE,
 }
 
@@ -301,6 +301,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
         demo_diagnosis_interpretation_sent = False
         demo_pending_task_guidance: str | None = None
         demo_final_closure_sent = False
+        demo_case_report_auto_end_triggered = False
         room_scan_context_primed = False
         task_vision_last_primed_id: str | None = None
         room_scan_usable_frame_count = 0
@@ -369,28 +370,104 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 reason=reason,
             )
 
-        async def maybe_request_room_scan_readiness_check() -> None:
-            nonlocal room_scan_last_eval_frame_count
+        async def perform_room_scan_verification(payload: dict[str, Any]) -> None:
+            nonlocal room_scan_context_primed
+            nonlocal room_scan_warning_sent
 
-            if bridge is None or state_machine.state != "room_sweep":
-                return
-            if bridge.is_operator_turn_active() or bridge.is_room_scan_evaluation_pending():
-                return
-            if room_scan_usable_frame_count < _MIN_VALIDATED_ROOM_SCAN_FRAMES:
+            if bridge is None:
+                raise VerificationFlowError(
+                    "Room scan confirmation is not available right now."
+                )
+            if state_machine.state not in {"room_sweep", "calibration"}:
+                raise VerificationFlowError(
+                    f"Ready to Verify is not legal from state {state_machine.state}."
+                )
+            if bridge.is_operator_turn_active():
+                await bridge.interrupt_operator_turn(reason="room_verify_request")
+
+            frame_data = payload.get("data")
+            frame_mime_type = payload.get("mimeType")
+            if not isinstance(frame_data, str):
+                await bridge.send_operator_guidance(
+                    "One second. Capturing the room view.",
+                    source="verification_flow",
+                )
+                await manager.send_json(
+                    session_id,
+                    {
+                        "type": "room_verification_request",
+                        "sessionId": session_id,
+                        "payload": {
+                            "source": payload.get("source") if isinstance(payload.get("source"), str) else "verification_flow",
+                        },
+                    },
+                )
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "room_verification_capture_requested",
+                    session_id=session_id,
+                    source=payload.get("source") if isinstance(payload.get("source"), str) else "verification_flow",
+                )
                 return
 
-            readiness_status, _ = bridge.get_room_scan_readiness()
-            if readiness_status == "ready":
-                return
-            if (
-                room_scan_last_eval_frame_count > 0
-                and room_scan_usable_frame_count
-                < room_scan_last_eval_frame_count + _MIN_VALIDATED_ROOM_SCAN_FRAMES
-            ):
-                return
+            await bridge.send_room_scan_frame(
+                frame_data,
+                mime_type=frame_mime_type if isinstance(frame_mime_type, str) and frame_mime_type.strip() else "image/jpeg",
+                enforce_brightness_gate=False,
+            )
 
-            room_scan_last_eval_frame_count = room_scan_usable_frame_count
+            await bridge.send_operator_guidance(
+                "One second. Verifying the room view.",
+                source="verification_flow",
+            )
+            if not await bridge.wait_for_operator_turn_idle(timeout=12.0):
+                raise VerificationFlowError(
+                    "The room verification prompt did not finish cleanly. Hold the frame and try again."
+                )
+
+
             await bridge.request_room_scan_readiness_check()
+            readiness_status, readiness_reason = await bridge.wait_for_room_scan_readiness(
+                timeout=10.0,
+            )
+            if readiness_status != "ready":
+                rejection_reason = (
+                    readiness_reason
+                    or last_room_scan_quality_reason
+                    or "insufficient_view"
+                )
+                room_scan_warning_sent = False
+                await maybe_emit_room_scan_rejection(rejection_reason)
+                raise VerificationFlowError(
+                    "The operator still does not have a usable room view. Fix the frame and try again."
+                )
+
+            captured_payload = {
+                "status": "captured",
+            }
+            captured_at = payload.get("capturedAt")
+            if isinstance(captured_at, str) and captured_at.strip():
+                captured_payload["capturedAt"] = captured_at.strip()
+
+            await state_machine.handle_calibration_status(captured_payload)
+            room_scan_context_primed = False
+            reset_room_scan_tracking()
+            await bridge.reset_for_setup_transition(reason="calibration_captured")
+            calibration_snapshot = state_machine.to_payload()
+            await forward_component_envelope(
+                {
+                    "type": "session_state",
+                    "sessionId": session_id,
+                    "payload": calibration_snapshot,
+                }
+            )
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "websocket_room_scan_verification_completed",
+                session_id=session_id,
+            )
 
         async def forward_component_envelope(message: dict[str, Any]) -> None:
             changed = state_machine.observe_outbound_envelope(message)
@@ -475,6 +552,8 @@ def register_websocket_gateway(app: FastAPI) -> None:
 
         async def maybe_prime_room_scan_context() -> None:
             nonlocal room_scan_context_primed
+            if state_machine.demo_mode_enabled:
+                return
             if bridge is None or room_scan_context_primed or state_machine.state != "room_sweep":
                 return
             room_scan_context_primed = True
@@ -482,6 +561,8 @@ def register_websocket_gateway(app: FastAPI) -> None:
 
         async def maybe_prime_task_vision_context() -> None:
             nonlocal task_vision_last_primed_id
+            if state_machine.demo_mode_enabled:
+                return
             if bridge is None or state_machine.state not in {"task_assigned", "waiting_ready", "recovery_active"}:
                 return
             task_ctx = state_machine.current_task_context
@@ -562,6 +643,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
             nonlocal demo_diagnosis_interpretation_sent
             nonlocal demo_pending_task_guidance
             nonlocal demo_final_closure_sent
+            nonlocal demo_case_report_auto_end_triggered
 
             if not state_machine.demo_mode_enabled:
                 return
@@ -661,6 +743,14 @@ def register_websocket_gateway(app: FastAPI) -> None:
             ):
                 demo_final_closure_sent = True
                 await emit_demo_guidance(DEMO_FINAL_CLOSURE_LINE)
+                if (
+                    state_name == "case_report"
+                    and not demo_case_report_auto_end_triggered
+                ):
+                    demo_case_report_auto_end_triggered = True
+                    if bridge is not None:
+                        await bridge.wait_for_operator_turn_idle(timeout=20.0)
+                    await state_machine.handle_stop_request("demo_case_report_complete")
 
         async def handle_normal_guidance_hooks(message: dict[str, Any]) -> None:
             if state_machine.demo_mode_enabled:
@@ -708,16 +798,22 @@ def register_websocket_gateway(app: FastAPI) -> None:
                         "The step was self-reported. Acknowledge it and "
                         "move on to the next containment instruction."
                     )
-                if bridge is not None:
-                    await bridge.send_context_directive(context_text)
-                return
-
-            # Fall back to authored templates for non-verification envelopes.
-            for directive in normal_mode_guidance.consume_envelope(message):
-                await emit_operator_guidance(directive)
 
         async def start_verification_from_bridge(payload: dict[str, Any]) -> None:
+            if state_machine.state in {"room_sweep", "calibration"}:
+                await perform_room_scan_verification(payload)
+                return
+
             try:
+                if bridge is not None:
+                    if bridge.is_operator_turn_active():
+                        await bridge.interrupt_operator_turn(reason="task_verify_request")
+
+                    await bridge.send_operator_guidance(
+                        "Hold still. One second. Verifying.",
+                        source="verification_flow",
+                    )
+                    await bridge.wait_for_operator_turn_idle(timeout=12.0)
                 prepared_payload = state_machine.prepare_verification_request(payload)
                 previous_state = state_machine.begin_verification_request()
                 try:
@@ -898,14 +994,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
                         if not state_machine.camera_ready:
                             room_scan_context_primed = False
                     elif envelope.message_type == "verify_request":
-                        prepared_payload = state_machine.prepare_verification_request(envelope.payload)
-                        previous_state = state_machine.begin_verification_request()
-                        try:
-                            await verification_flow.start_verification(prepared_payload)
-                        except Exception:
-                            state_machine.rollback(previous_state, "verifying")
-                            raise
-                        await state_machine.emit_snapshot()
+                        await start_verification_from_bridge(envelope.payload)
                     elif envelope.message_type == "swap_request":
                         prepared_payload = state_machine.prepare_swap_request(envelope.payload)
                         previous_state = state_machine.begin_swap_request()
@@ -931,7 +1020,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
                             if bridge is not None and gemini_vision_engine._gemini_session is None:
                                 gemini_vision_engine.attach_session(bridge.gemini_session)
                     elif envelope.message_type == "room_scan_frame":
-                        # Room scan frame for Gemini vision during room setup.
+                        # Passive room scan frames for Gemini context during setup.
                         frame_data = envelope.payload.get("data")
                         frame_usable = _is_room_scan_frame_usable(envelope.payload)
                         if frame_usable:
@@ -941,14 +1030,12 @@ def register_websocket_gateway(app: FastAPI) -> None:
                         else:
                             room_scan_usable_frame_count = 0
                             last_room_scan_quality_reason = _room_scan_quality_reason(envelope.payload)
-                            await maybe_emit_room_scan_rejection(last_room_scan_quality_reason)
                         if isinstance(frame_data, str) and bridge is not None:
                             await maybe_prime_room_scan_context()
                             frame_sent = await bridge.send_room_scan_frame(
                                 frame_data,
                                 enforce_brightness_gate=False,
                             )
-                            await maybe_request_room_scan_readiness_check()
                             log_event(
                                 LOGGER,
                                 logging.INFO,
@@ -960,63 +1047,8 @@ def register_websocket_gateway(app: FastAPI) -> None:
                                 quality_reason=last_room_scan_quality_reason,
                             )
                     elif envelope.message_type == "calibration_status":
-                        # Room setup auto-complete: useRoomScan sends this after a few usable frames
-                        if bridge is None:
-                            raise SessionStateMachineError(
-                                "Room scan confirmation is not available right now."
-                            )
-                        if bridge.is_operator_turn_active():
-                            raise SessionStateMachineError(
-                                "Room scan cannot lock while the operator is still speaking. Hold the frame and wait for the room prompt to finish."
-                            )
-                        if not _is_room_scan_frame_usable(envelope.payload):
-                            await maybe_emit_room_scan_rejection(_room_scan_quality_reason(envelope.payload))
-                            raise SessionStateMachineError(
-                                "Calibration capture was rejected because the room view is still too dark or unclear."
-                            )
-                        if room_scan_usable_frame_count < _MIN_VALIDATED_ROOM_SCAN_FRAMES:
-                            raise SessionStateMachineError(
-                                "Calibration requires three usable room-scan frames before the operator can confirm the space."
-                            )
-
-                        await maybe_request_room_scan_readiness_check()
-                        readiness_status, readiness_reason = bridge.get_room_scan_readiness()
-                        if readiness_status != "ready":
-                            if readiness_status == "retry":
-                                await maybe_emit_room_scan_rejection(
-                                    readiness_reason or "insufficient_view"
-                                )
-                                raise SessionStateMachineError(
-                                    "Calibration capture was rejected because the operator still does not have a usable wide room view."
-                                )
-                            if bridge.is_room_scan_evaluation_pending():
-                                raise SessionStateMachineError(
-                                    "Hold the frame steady. The operator is still confirming the room view."
-                                )
-                            raise SessionStateMachineError(
-                                "Hold the frame steady. The operator is confirming the room view."
-                            )
-
-                        await state_machine.handle_calibration_status(envelope.payload)
-                        room_scan_context_primed = False
-                        reset_room_scan_tracking()
-                        await bridge.reset_for_setup_transition(
-                            reason="calibration_captured"
-                        )
-                        calibration_snapshot = state_machine.to_payload()
-                        await forward_component_envelope(
-                            {
-                                "type": "session_state",
-                                "sessionId": session_id,
-                                "payload": calibration_snapshot,
-                            }
-                        )
-                        log_event(
-                            LOGGER,
-                            logging.INFO,
-                            "websocket_calibration_status_handled",
-                            session_id=session_id,
-                        )
+                        # Backwards-compatible fallback: treat manual calibration as an explicit room verification request.
+                        await perform_room_scan_verification(envelope.payload)
                     elif envelope.message_type == "client_event":
                         await state_machine.handle_client_event(envelope.payload)
                         log_event(
@@ -1189,4 +1221,8 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 reason=disconnect_reason,
                 active_connections=manager.active_count,
             )
+
+
+
+
 

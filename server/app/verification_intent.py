@@ -1,4 +1,4 @@
-﻿"""Deterministic voice intent parsing for Ready-to-Verify requests."""
+"""Deterministic voice intent parsing for Ready-to-Verify requests."""
 
 from __future__ import annotations
 
@@ -11,6 +11,11 @@ _WHITESPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s+")
 _NON_WORD_RE: Final[re.Pattern[str]] = re.compile(r"[^a-z0-9\s]")
 _READY_TO_VERIFY_ALIASES: Final[tuple[str, ...]] = (
     "ready to verify",
+    "ready verify",
+    "ready to wear",
+    "ready wear",
+    "ready for verification",
+    "ready for you to verify",
     "verify now",
     "can you verify",
     "can you check it",
@@ -38,6 +43,18 @@ def parse_ready_to_verify_voice_intent(
         if alias in normalized_text:
             return ReadyToVerifyVoiceIntent(
                 matched_phrase=alias,
+                raw_transcript_snippet=snippet,
+            )
+
+    # Gemini occasionally transcribes "ready to verify" as nearby phonetics
+    # such as "ready to wear". Treat short "ready to <word>" phrases that
+    # sound like the expected prompt as verification requests.
+    words = normalized_text.split()
+    if len(words) in {3, 4} and words[:2] == ["ready", "to"]:
+        final_word = words[2]
+        if final_word.startswith(("ver", "var", "wer", "wear")):
+            return ReadyToVerifyVoiceIntent(
+                matched_phrase="ready to verify",
                 raw_transcript_snippet=snippet,
             )
 

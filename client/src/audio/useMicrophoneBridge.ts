@@ -120,10 +120,10 @@ export function useMicrophoneBridge(
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          autoGainControl: false,
+          autoGainControl: true,
           channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
+          echoCancellation: true,
+          noiseSuppression: true,
         },
         video: false,
       });
@@ -251,3 +251,4 @@ export function useMicrophoneBridge(
     getAnalyserNode: () => captureControllerRef.current?.getAnalyserNode() ?? null,
   };
 }
+

@@ -132,12 +132,11 @@ function buildOperatorLine(
     case "pending":
     case "capturing_window":
       return holdStillSeconds === 1
-        ? "Hold still for one second."
-        : `Hold still for ${holdStillSeconds} seconds.`;
+        ? "Hold still. Capturing the verification frame now." : `Hold still. Capturing the verification frame for ${holdStillSeconds} seconds.`;
     case "uploading_frames":
-      return "Verification window captured. Sending the staged frame window now.";
+      return "Verification frame captured. Sending it to the backend now.";
     case "captured":
-      return "Verification window captured. Stand by.";
+      return "Verification frame captured. Stand by.";
     default:
       return null;
   }
@@ -245,7 +244,7 @@ export function useReadyToVerifyFlow(
       activeAttemptRef.current = null;
       setState((current) => ({
         ...current,
-        error: "Camera preview must be live before Ready to Verify can capture a bounded frame window.",
+        error: "Camera preview must be live before Ready to Verify can capture a verification frame.",
         isBusy: false,
         operatorLine: "I can't verify that yet. The room feed is not live.",
         phase: "idle",
@@ -313,7 +312,7 @@ export function useReadyToVerifyFlow(
 
         if (!didSend) {
           throw new Error(
-            "The verification window was captured, but a frame could not be sent to the backend.",
+            "The verification frame was captured, but it could not be sent to the backend.",
           );
         }
       });
@@ -327,7 +326,7 @@ export function useReadyToVerifyFlow(
             ? error.message
             : "Verification capture failed.",
         isBusy: false,
-        operatorLine: "I can't verify that yet. The capture window failed.",
+        operatorLine: "I can't verify that yet. The verification capture failed.",
         phase: "idle",
       }));
       return;
@@ -336,6 +335,8 @@ export function useReadyToVerifyFlow(
 
   return state;
 }
+
+
 
 
 

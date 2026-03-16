@@ -32,7 +32,7 @@ LOGGER = logging.getLogger("ghostline.backend.verification")
 ForwardEnvelope = Callable[[dict[str, Any]], Awaitable[None]]
 _HOLD_STILL_SECONDS = 1
 _CAPTURE_WINDOW_MS = 1000
-_EXPECTED_FRAME_COUNT = 4
+_EXPECTED_FRAME_COUNT = 1
 _MAX_RECENT_USER_TRANSCRIPTS = 6
 _VALID_PATH_MODES = {"threshold", "tabletop", "low_visibility"}
 
@@ -176,11 +176,11 @@ class SessionVerificationFlow:
     async def start_verification(self, payload: dict[str, Any]) -> None:
         if self._active_attempt is not None:
             raise VerificationFlowError(
-                "A Ready-to-Verify window is already in progress."
+                "A Ready-to-Verify capture is already in progress."
             )
         if not self._camera_ready:
             raise VerificationFlowError(
-                "Ready to Verify requires an active room feed before the hold-still window can begin."
+                "Ready to Verify requires an active room feed before capture can begin."
             )
         if not self._microphone_streaming:
             raise VerificationFlowError(
@@ -255,11 +255,6 @@ class SessionVerificationFlow:
             raw_transcript_snippet=attempt.raw_transcript_snippet,
             task_context_status=attempt.task_context.get("contextStatus"),
         )
-
-        await self._forward_transcript(
-            text="Hold still for one second.",
-            source="verification_flow",
-        )
         await self._forward_state(
             status="pending",
             attempt=attempt,
@@ -269,7 +264,7 @@ class SessionVerificationFlow:
     async def ingest_frame(self, payload: dict[str, Any]) -> None:
         if self._active_attempt is None:
             raise VerificationFlowError(
-                "No Ready-to-Verify window is waiting for frames."
+                "No Ready-to-Verify capture is waiting for a frame."
             )
 
         attempt_id = payload.get("verificationAttemptId")
@@ -324,10 +319,6 @@ class SessionVerificationFlow:
             status="captured",
             attempt=completed_attempt,
             received_frames=len(completed_attempt.frames),
-        )
-        await self._forward_transcript(
-            text="Verification window captured. Stand by.",
-            source="verification_flow",
         )
         if self._verification_engine is not None:
             await self._run_verification_engine(completed_attempt)
@@ -934,3 +925,5 @@ __all__ = [
     "SessionVerificationFlow",
     "VerificationFlowError",
 ]
+
+

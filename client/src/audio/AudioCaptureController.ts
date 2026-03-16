@@ -8,7 +8,6 @@ import {
 
 import { getSharedAudioContext } from "./sharedAudioContext";
 
-
 const PCM_CAPTURE_WORKLET_URL = "/audio-worklets/pcmCaptureProcessor.js";
 
 interface CaptureSamplesMessage {

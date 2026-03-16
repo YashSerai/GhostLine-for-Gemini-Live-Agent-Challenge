@@ -198,6 +198,8 @@ class SessionStateMachine:
     async def handle_client_connect(self, payload: dict[str, Any]) -> None:
         self.browser_mic_permission = payload.get("browserMicPermission", "prompt")
         self.browser_camera_permission = payload.get("browserCameraPermission", "prompt")
+        if self.demo_mode_enabled:
+            self._ensure_plan()
         self._transition("call_connected", "client_connect")
         self._transition("consent", "hotline_connected")
         self._transition("microphone_request", "in_call_permission_flow")
@@ -1136,3 +1138,5 @@ def _utc_now_iso() -> str:
 
 
 __all__ = ["SessionStateMachine", "SessionStateMachineError"]
+
+
