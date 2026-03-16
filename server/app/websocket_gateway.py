@@ -1,4 +1,4 @@
-﻿"""WebSocket gateway for client session traffic and backend session state."""
+"""WebSocket gateway for client session traffic and backend session state."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ from .demo_dialogue import (
     DEMO_FINAL_CLOSURE_LINE,
     DEMO_OPENER_LINE_GRANTED,
     DEMO_OPENER_LINE_PROMPT,
-    DEMO_ROOM_SCAN_LINE,
     DEMO_ROOM_SCAN_ASSESSMENT_LINE,
+    DEMO_ROOM_SCAN_LINE,
     build_demo_task_assignment_line,
     get_demo_flavor_for_task,
 )
@@ -302,7 +302,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 )
 
             # Watch for ROOM_FEATURES markers in operator transcripts from
-            # Gemini's room scan â€” parse them and feed into the state machine
+            # Gemini's room scan - parse them and feed into the state machine
             # so the protocol planner uses AI-observed room features.
             msg_payload_for_scan = message.get("payload")
             if (
@@ -378,6 +378,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
                     },
                 }
             )
+
 
         async def update_demo_barge_in(payload: dict[str, Any]) -> None:
             changed = state_machine.update_demo_barge_in(payload)
@@ -633,7 +634,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
 
         # Attach the Gemini Live session to the vision engine so it can
         # send frames for analysis during verification.  The session is
-        # lazy â€” it is created when the bridge opens its first stream â€”
+        # lazy - it is created when the bridge opens its first stream -
         # so we attach via property reference on the bridge.
         gemini_vision_engine.attach_session(bridge.gemini_session)
 
@@ -690,7 +691,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
                         # Replay the session state through the full guidance
                         # pipeline.  handle_client_connect() already sent the
                         # snapshot to the client via emit_snapshot(), but that
-                        # goes through manager.send_json directly â€” it never
+                        # goes through manager.send_json directly - it never
                         # passes through forward_component_envelope, so the
                         # guidance hooks (demo and normal) never fire and the
                         # opener text never reaches Gemini for speech.
@@ -795,11 +796,14 @@ def register_websocket_gateway(app: FastAPI) -> None:
                             if bridge is not None and gemini_vision_engine._gemini_session is None:
                                 gemini_vision_engine.attach_session(bridge.gemini_session)
                     elif envelope.message_type == "room_scan_frame":
-                        # Room scan frame for Gemini vision during room sweep
+                        # Room scan frame for Gemini vision during room setup.
                         frame_data = envelope.payload.get("data")
                         if isinstance(frame_data, str) and bridge is not None:
                             await maybe_prime_room_scan_context()
-                            frame_sent = await bridge.send_room_scan_frame(frame_data)
+                            frame_sent = await bridge.send_room_scan_frame(
+                                frame_data,
+                                enforce_brightness_gate=False,
+                            )
                             log_event(
                                 LOGGER,
                                 logging.INFO,
@@ -808,9 +812,21 @@ def register_websocket_gateway(app: FastAPI) -> None:
                                 frame_sent=frame_sent,
                             )
                     elif envelope.message_type == "calibration_status":
-                        # Room scan auto-complete: useRoomScan sends this after 5 frames
+                        # Room setup auto-complete: useRoomScan sends this after a few usable frames
                         await state_machine.handle_calibration_status(envelope.payload)
                         room_scan_context_primed = False
+                        if bridge is not None:
+                            await bridge.reset_for_setup_transition(
+                                reason="calibration_captured"
+                            )
+                        calibration_snapshot = state_machine.to_payload()
+                        await forward_component_envelope(
+                            {
+                                "type": "session_state",
+                                "sessionId": session_id,
+                                "payload": calibration_snapshot,
+                            }
+                        )
                         log_event(
                             LOGGER,
                             logging.INFO,
@@ -989,19 +1005,6 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 reason=disconnect_reason,
                 active_connections=manager.active_count,
             )
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

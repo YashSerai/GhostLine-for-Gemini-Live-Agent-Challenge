@@ -1,4 +1,4 @@
-﻿"""Session-scoped Gemini Live bridge for client audio input and operator audio output."""
+"""Session-scoped Gemini Live bridge for client audio input and operator audio output."""
 
 from __future__ import annotations
 
@@ -30,12 +30,12 @@ _SYSTEM_INSTRUCTION = (
     "cases. You are the caller's lifeline.\n\n"
 
     "PACING RULES:\n"
-    "- Speak at a brisk, rapid tempo. Do not linger on words or pause between sentences.\n"
-    "- Your pacing should feel like a veteran dispatcher - efficient, every word earns its place.\n"
-    "- Deliver lines quickly and move on. Brevity is authority.\n\n"
+    "- Speak very fast for clear spoken English. Keep the cadence tight and urgent.\n"
+    "- Do not linger on words. Use minimal pause between sentences.\n"
+    "- Keep every line short, clipped, and immediate. Brevity is authority.\n\n"
 
     "PERSONA RULES:\n"
-    "- Speak in 1-2 sentences maximum per turn. Brevity is authority.\n"
+    "- Speak in 1 short sentence when possible, 2 at most. Brevity is authority.\n"
     "- You drive the call. You are in control. The caller follows your lead.\n"
     "- Do not ask for personal details or location.\n"
     "- Never use campy horror language, threats, profanity, gore, or jump scares.\n"
@@ -56,8 +56,7 @@ _SYSTEM_INSTRUCTION = (
     "- If you CANNOT see something, say 'I cannot see that.' Do NOT guess.\n"
     "- You would RATHER say 'I cannot confirm' 100 times than bluff ONCE.\n"
     "- If the FIRST frames you receive are unusable, do NOT describe a room. "
-    "Say: 'I am not getting a usable feed. Make sure your camera is working "
-    "and pan slowly so I can see the space.'\n"
+    "Say: 'I am not getting a usable feed. Fix the camera and hold the room still so I can confirm the space.'\n"
     "- If the caller CLAIMS something you cannot see: 'I do not see that. Show me.'\n\n"
 
     "THE CALL FLOW:\n"
@@ -65,19 +64,16 @@ _SYSTEM_INSTRUCTION = (
     "naturally and respond to what the caller says and shows you. The flow is:\n"
     "1. Call connects - you greet the caller with a short Containment Desk opener\n"
     "2. Camera access - tell them you need the room feed\n"
-    "3. Room scan - ask them to slowly pan the camera left to right so you can assess the space\n"
+    "3. Room scan - ask them to hold a wide, steady room view from a corner or doorway so you can assess the space\n"
     "4. Tasks begin - you guide them through containment steps one at a time\n"
     "5. Verification - when they say 'Ready to Verify', hold still for inspection\n"
     "6. Case report - you close the case with a final assessment\n\n"
 
     "ROOM SCAN:\n"
-    "When the camera goes live, ask the caller to slowly sweep the room from left "
-    "to right. You will receive frames from the camera. FIRST check frame quality "
-    "(see VISION HONESTY rules above). If the frames are usable, describe what "
-    "you ACTUALLY see - doorways, surfaces, light sources, objects. Then deliver "
-    "a short, atmospheric assessment. Keep it procedural and grounded in what you "
-    "can actually see in the frame.\n\n"
-
+    "When the camera goes live, first confirm that the frame is usable. If it is dark, black, blurry, shaky, or obstructed, "
+    "tell the caller to fix it before moving. Once the feed is clear, ask the caller to show the room from a corner or doorway "
+    "in one wide, steady shot. If a blind spot matters, ask to see that specific area. Describe only what you ACTUALLY see, "
+    "then deliver a short, procedural assessment grounded in the frame.\n\n"
     "VISION ANALYSIS:\n"
     "You have access to the caller's camera feed. When the backend sends you frames:\n"
     "- ROOM_ANALYSIS: Describe the room features you see and assess readiness.\n"
@@ -119,7 +115,7 @@ HandleSwapRequestCallback = Callable[[dict[str, Any]], Awaitable[None]]
 RecordUserTranscriptCallback = Callable[[str, bool], None]
 UpdateDemoBargeInCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
-# Minimum JPEG payload size - a 640Ã—480 all-black JPEG is typically <600 bytes.
+# Minimum JPEG payload size - a 640x480 all-black JPEG is typically <600 bytes.
 # Valid camera frames with real content are usually 5KB+.
 _MIN_JPEG_SIZE = 800
 # When sampling raw bytes from the JPEG interior, if the average is below this
@@ -254,6 +250,7 @@ class SessionAudioBridge:
         frame_base64: str,
         *,
         mime_type: str = "image/jpeg",
+        enforce_brightness_gate: bool = True,
     ) -> bool:
         """Send a room scan frame to the Gemini session during calibration.
 
@@ -264,7 +261,7 @@ class SessionAudioBridge:
 
         Includes:
         - Server-side minimum interval gate (~1 fps)
-        - Server-side frame brightness check (rejects black/dark frames)
+        - Optional server-side frame brightness gate when strict filtering is needed
 
         Returns True if the frame was sent successfully.
         """
@@ -284,8 +281,10 @@ class SessionAudioBridge:
         if not image_bytes:
             return False
 
-        # Server-side brightness check - reject black/very dark frames
-        if not _check_frame_brightness(image_bytes, session_id=self.session_id):
+        if enforce_brightness_gate and not _check_frame_brightness(
+            image_bytes,
+            session_id=self.session_id,
+        ):
             return False
 
         try:
@@ -316,28 +315,18 @@ class SessionAudioBridge:
         without creating a new conversational turn per frame.
         """
         await self.send_context_directive(
-            "ROOM_ANALYSIS: The caller is about to slowly pan the camera around "
-            "the room. You will receive a series of camera frames as a continuous "
-            "feed. As The Archivist, comment briefly on what you ACTUALLY see in "
-            "each frame as it arrives. "
-            "\nFRAME QUALITY GATE (CHECK FIRST): Before describing ANYTHING, "
-            "assess frame quality. If the frame is dark, blurry, shaky, "
-            "obstructed, or unclear for ANY reason, say so and ask the caller "
-            "to fix it. Do NOT proceed with room analysis until you have a "
-            "clear, stable, well-lit frame. If you are unsure whether you can "
-            "see something, say 'I cannot confirm that.' Do NOT describe "
+            "ROOM_ANALYSIS: The caller is about to show you the room from a corner or doorway in one wide, steady shot. "
+            "You will receive a short sequence of camera frames from that hold. "
+            "\nFRAME QUALITY GATE (CHECK FIRST): Before describing ANYTHING, assess frame quality. If the frame is dark, black, blurry, shaky, "
+            "obstructed, or unclear for ANY reason, say so and ask the caller to fix it. Do NOT proceed with room analysis until you have a "
+            "clear, stable, well-lit frame. If you are unsure whether you can see something, say 'I cannot confirm that.' Do NOT describe "
             "objects you cannot clearly see. Do NOT invent rooms or features. "
-            "\nIf frames ARE clear: describe what is genuinely visible - "
-            "keep each observation to one short sentence. Stay procedural "
-            "and calm. Do NOT interrupt yourself or restart your analysis with each "
-            "new frame - treat them as a continuous sweep. Do NOT generate long "
-            "descriptions. When the sweep ends, deliver a short atmospheric "
-            "assessment: your sensors have picked up residual spectral activity "
-            "in this space. The readings are elevated. Containment protocol is "
-            "warranted. Do NOT speak over yourself - if you are still speaking "
-            "when a new frame arrives, finish your current thought first. "
-            "PACING REMINDER: maintain your brisk, rapid tempo throughout. "
-            "Do not slow down. Short punchy observations only."
+            "\nIf frames ARE clear: describe what is genuinely visible - keep each observation to one short sentence. Treat the frames as one "
+            "continuous hold, not a moving panorama. If the wide shot misses an area you need, ask for that specific blind spot instead of "
+            "restarting the whole scan. When you have enough context, deliver a short atmospheric assessment: your sensors have picked up "
+            "residual spectral activity in this space. The readings are elevated. Containment protocol is warranted. Do NOT speak over yourself - "
+            "if you are still speaking when a new frame arrives, finish your current thought first. PACING REMINDER: maintain your brisk, rapid "
+            "tempo throughout. Do not slow down. Short punchy observations only."
         )
 
     async def prime_task_vision_context(
@@ -454,8 +443,10 @@ class SessionAudioBridge:
         if not image_bytes:
             return False
 
-        # Server-side brightness check - reject black/very dark frames
-        if not _check_frame_brightness(image_bytes, session_id=self.session_id):
+        if not _check_frame_brightness(
+            image_bytes,
+            session_id=self.session_id,
+        ):
             return False
 
         prompt = (
@@ -1190,24 +1181,6 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

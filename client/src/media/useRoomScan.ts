@@ -1,10 +1,10 @@
 /**
- * useRoomScan — captures camera frames at ~1fps during room scan
- * and sends them to the backend as `room_scan_frame` messages.
+ * useRoomScan captures camera frames at ~1fps during room setup and sends them
+ * to the backend as `room_scan_frame` messages.
  *
- * The hook activates when `isScanning` is true and a camera video
- * element is available. It captures a JPEG frame every second and
- * sends it as base64 data via the session WebSocket.
+ * The operator now asks for one clear, wide room view rather than a full 360.
+ * Dark or unreadable frames are still sent so Gemini can call them out,
+ * while scan completion still waits for usable frames.
  */
 
 import { useEffect, useRef, useState, type RefObject } from "react";
@@ -15,24 +15,21 @@ import type {
 } from "../session/sessionTypes";
 import type { CapturedFrame } from "./frameCapture";
 
-const SCAN_INTERVAL_MS = 1000; // ~1fps for Gemini Live
-const SCAN_FRAME_QUALITY = 0.6; // JPEG quality (0-1)
-const SNAPSHOT_INTERVAL_FRAMES = 5; // Stash a frame for the UI every 5 seconds
+const SCAN_INTERVAL_MS = 1000;
+const SCAN_FRAME_QUALITY = 0.6;
+const ROOM_VIEW_CONFIRMATION_FRAMES = 3;
+const SNAPSHOT_INTERVAL_FRAMES = 3;
 
-// Frame quality thresholds — match useTaskVision
-const MIN_BRIGHTNESS = 15; // average luma 0-255
-const MIN_DETAIL = 0.05; // detail score 0-1
+const MIN_BRIGHTNESS = 15;
+const MIN_DETAIL = 0.05;
+
+type RoomScanQualityReason = "too_dark" | "low_detail";
 
 export interface UseRoomScanOptions {
-  /** Whether room scan capture is active */
   isScanning: boolean;
-  /** Connection status — only send when connected */
   connectionStatus: SessionConnectionStatus;
-  /** Reference to the live camera video element */
   videoRef: RefObject<HTMLVideoElement>;
-  /** Canvas for frame capture */
   canvasRef: RefObject<HTMLCanvasElement>;
-  /** Session sendMessage function */
   sendMessage: <T extends ClientSessionMessageType>(
     type: T,
     payload?: Record<string, unknown>,
@@ -40,11 +37,9 @@ export interface UseRoomScanOptions {
 }
 
 export interface RoomScanState {
-  /** Frames captured recently for UI display */
   snapshots: CapturedFrame[];
 }
 
-/** Quick frame quality check — 8×6 pixel grid sampling. */
 function quickFrameQuality(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -69,7 +64,7 @@ function quickFrameQuality(
       lumaSum += luma;
       if (prevLuma !== null) {
         detailSum += Math.abs(luma - prevLuma);
-        detailCount++;
+        detailCount += 1;
       }
       prevLuma = luma;
     }
@@ -80,14 +75,22 @@ function quickFrameQuality(
   return { brightness, detail };
 }
 
+function getQualityReason(brightness: number, detail: number): RoomScanQualityReason | null {
+  if (brightness < MIN_BRIGHTNESS) {
+    return "too_dark";
+  }
+  if (detail < MIN_DETAIL) {
+    return "low_detail";
+  }
+  return null;
+}
+
 export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
-  const { isScanning, connectionStatus, videoRef, canvasRef, sendMessage } =
-    options;
+  const { isScanning, connectionStatus, videoRef, canvasRef, sendMessage } = options;
 
   const sendMessageRef = useRef(sendMessage);
   const connectionStatusRef = useRef(connectionStatus);
-  
-  const frameCountRef = useRef(0);
+  const usableFrameCountRef = useRef(0);
   const [snapshots, setSnapshots] = useState<CapturedFrame[]>([]);
 
   useEffect(() => {
@@ -98,29 +101,37 @@ export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
     connectionStatusRef.current = connectionStatus;
   }, [connectionStatus]);
 
-  // Clear snapshots when scanning starts
   useEffect(() => {
     if (isScanning) {
       setSnapshots([]);
-      frameCountRef.current = 0;
+      usableFrameCountRef.current = 0;
     }
   }, [isScanning]);
 
   useEffect(() => {
-    if (!isScanning) return;
+    if (!isScanning) {
+      return;
+    }
 
     const intervalId = setInterval(() => {
       const video = videoRef.current;
       const canvas = canvasRef.current;
 
-      if (!video || !canvas) return;
-      if (connectionStatusRef.current !== "connected") return;
-      if (video.readyState < 2) return; // HAVE_CURRENT_DATA
+      if (!video || !canvas) {
+        return;
+      }
+      if (connectionStatusRef.current !== "connected") {
+        return;
+      }
+      if (video.readyState < 2) {
+        return;
+      }
 
       const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      if (!ctx) {
+        return;
+      }
 
-      // Scale down for faster transfer — 640px wide max
       const scale = Math.min(1, 640 / video.videoWidth);
       const w = Math.round(video.videoWidth * scale);
       const h = Math.round(video.videoHeight * scale);
@@ -129,53 +140,59 @@ export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
       canvas.height = h;
       ctx.drawImage(video, 0, 0, w, h);
 
-      // Quality gate: skip dark/blank/blurry frames (do NOT count toward auto-complete)
       const { brightness, detail } = quickFrameQuality(ctx, w, h);
-      if (brightness < MIN_BRIGHTNESS || detail < MIN_DETAIL) {
-        return; // frame too dark or too uniform — skip entirely
-      }
-
       const capturedAt = new Date().toISOString();
       const dataUrl = canvas.toDataURL("image/jpeg", SCAN_FRAME_QUALITY);
       const base64 = dataUrl.split(",")[1];
+      if (!base64) {
+        return;
+      }
 
-      if (base64) {
-        sendMessageRef.current("room_scan_frame", {
-          data: base64,
+      const qualityReason = getQualityReason(brightness, detail);
+      const roundedBrightness = Math.round(brightness);
+      const roundedDetail = Number(detail.toFixed(3));
+
+      sendMessageRef.current("room_scan_frame", {
+        data: base64,
+        capturedAt,
+        width: w,
+        height: h,
+        quality: qualityReason === null ? "usable" : "unusable",
+        qualityReason,
+        brightness: roundedBrightness,
+        detail: roundedDetail,
+      });
+
+      if (qualityReason !== null) {
+        return;
+      }
+
+      if (usableFrameCountRef.current % SNAPSHOT_INTERVAL_FRAMES === 0) {
+        setSnapshots((prev) => [
+          ...prev,
+          {
+            data: base64,
+            capturedAt,
+            width: w,
+            height: h,
+            captureType: "room_scan" as const,
+            dataUrl,
+            mimeType: "image/jpeg",
+            analysis: null as any,
+          },
+        ]);
+      }
+
+      usableFrameCountRef.current += 1;
+
+      if (usableFrameCountRef.current >= ROOM_VIEW_CONFIRMATION_FRAMES) {
+        sendMessageRef.current("calibration_status", {
+          status: "captured",
           capturedAt,
           width: w,
           height: h,
         });
-
-        // Stash snapshot for UI gallery
-        if (frameCountRef.current % SNAPSHOT_INTERVAL_FRAMES === 0) {
-          setSnapshots((prev) => [
-            ...prev,
-            { 
-              data: base64, 
-              capturedAt, 
-              width: w, 
-              height: h, 
-              captureType: "room_scan" as const,
-              dataUrl: dataUrl,
-              mimeType: "image/jpeg",
-              analysis: null as any,
-            },
-          ]);
-        }
-        frameCountRef.current += 1;
-
-        // Auto-complete calibration after 5 frames
-        if (frameCountRef.current >= SNAPSHOT_INTERVAL_FRAMES) {
-          sendMessageRef.current("calibration_status", {
-            status: "captured",
-            capturedAt,
-            width: w,
-            height: h,
-          });
-          // Clear interval so we don't keep firing
-          clearInterval(intervalId);
-        }
+        clearInterval(intervalId);
       }
     }, SCAN_INTERVAL_MS);
 
@@ -184,4 +201,6 @@ export function useRoomScan(options: UseRoomScanOptions): RoomScanState {
 
   return { snapshots };
 }
+
+
 

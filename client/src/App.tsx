@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMicrophoneBridge } from "./audio/useMicrophoneBridge";
 import { useOperatorAudioPlayback } from "./audio/useOperatorAudioPlayback";
 import { AudioSpectrogram } from "./hud/AudioSpectrogram";
@@ -292,7 +292,7 @@ function getOperatorPlaceholder(
     connectionStatus === "connecting" ||
     connectionStatus === "reconnecting"
   ) {
-    return "Containment Desk is bringing the line up now. Stay with me. I will request microphone first, then camera, then one room sweep and calibration still frame.";
+    return "Containment Desk is bringing the line up now. Stay with me. I will request microphone first, then camera, then one wide room view before the first containment step.";
   }
 
   if (permissionStage === "request_microphone") {
@@ -312,15 +312,15 @@ function getOperatorPlaceholder(
   }
 
   if (permissionStage === "camera_requesting") {
-    return "The camera request is open now. Approve it and return to the call. After that, I will ask for one slow room sweep and one calibration still frame.";
+    return "The camera request is open now. Approve it and return to the call. After that, I will ask for one steady wide room view so I can assess the space.";
   }
 
   if (permissionStage === "camera_denied") {
-    return "Camera access was denied. Retry it now. I need one slow room sweep and one clean calibration frame before I can place the first step.";
+    return "Camera access was denied. Retry it now. I need one clear wide room view before I can place the first step.";
   }
 
   if (connectionStatus === "connected" && cameraReady && captureFrameCount === 0) {
-    return "I have confirmed camera access. Pan slowly in a full circle for about five seconds. The scan will complete automatically when I have enough room context.";
+    return "I have confirmed camera access. Hold a wide view of the room from a corner or doorway. The scan completes once I have a few clear frames.";
   }
 
   if (
@@ -371,7 +371,7 @@ function getPermissionRequestCopy(
     case "awaiting_call":
       return {
         title: "Call Not Started",
-        body: "Start the hotline first. Microphone comes first, then camera, then one room sweep and one calibration still frame.",
+        body: "Start the hotline first. Microphone comes first, then camera, then one clear room view before the first task.",
         tone: "pending",
       };
     case "request_microphone":
@@ -394,33 +394,33 @@ function getPermissionRequestCopy(
       };    case "request_camera":
       return {
         title: "Camera Request",
-        body: "Grant camera access now so the Archivist can direct a room sweep, lock calibration, and place the first containment step. Name capture is no longer a setup blocker.",
+        body: "Grant camera access now so the Archivist can check the feed, capture a wide room view, and place the first containment step. Name capture is no longer a setup blocker.",
         tone: "pending",
       };
     case "camera_requesting":
       return {
         title: "Awaiting Camera Permission",
-        body: "Your browser camera prompt should be open. Approve it, then return to the hotline. The next beat is one slow room sweep plus one calibration still frame.",
+        body: "Your browser camera prompt should be open. Approve it, then return to the hotline. The next beat is one steady wide room view so the Archivist can assess the space.",
         tone: "pending",
       };
     case "camera_denied":
       return {
         title: "Camera Access Denied",
-        body: "Retry camera access now. The hotline cannot place the first step until the room sweep and calibration frame are complete.",
+        body: "Retry camera access now. The hotline cannot place the first step until the room view is clear enough to assess.",
         tone: "warning",
       };
     case "permissions_ready":
       return {
         title: "Permissions Complete",
         body: isMicStreaming
-          ? "Microphone and camera were both granted in-call. Pan the camera slowly for a 360-degree sweep. The scan completes automatically, then follow the assigned task exactly."
+          ? "Microphone and camera were both granted in-call. Hold one steady wide shot of the room. The scan completes automatically after a few usable frames, then follow the assigned task exactly."
           : "Microphone and camera are both approved in-call. Resume the microphone stream when you are ready to continue.",
         tone: "ready",
       };
     default:
       return {
         title: "Call Not Started",
-        body: "Start the hotline first. Microphone comes first, then camera, then one room sweep and one calibration still frame.",
+        body: "Start the hotline first. Microphone comes first, then camera, then one clear room view before the first task.",
         tone: "pending",
       };
   }
@@ -1918,128 +1918,4 @@ function App() {
 }
 
 export default App;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

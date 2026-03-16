@@ -1,4 +1,4 @@
-﻿"""Deterministic live operator guidance orchestration for normal mode."""
+"""Deterministic live operator guidance orchestration for normal mode."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Final, Literal, TypeAlias
 
 from .flavor_text_state_model import FlavorTextStateModel
+from .room_scan_copy import ROOM_SCAN_PROMPT
 from .task_helpers import InvalidTaskIdError, get_task_by_id
 
 OperatorGuidanceBeat: TypeAlias = Literal[
@@ -85,13 +86,13 @@ class NormalModeOperatorGuidanceOrchestrator:
     ) -> OperatorGuidanceDirective:
         if _is_granted_permission(browser_mic_permission):
             text = (
-                "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
-                "I can see your microphone permission is already available. Press the Grant Microphone Access button now so I can hear you."
+                "Ghostline, Containment Desk. The Archivist speaking. "
+                "Press Grant Microphone Access now so I can hear you."
             )
         else:
             text = (
-                "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
-                "Press the Grant Microphone Access button now and accept the browser popup so I can hear you."
+                "Ghostline, Containment Desk. The Archivist speaking. "
+                "Press Grant Microphone Access and accept the popup now."
             )
         return OperatorGuidanceDirective(
             beat="microphone_request",
@@ -107,40 +108,30 @@ class NormalModeOperatorGuidanceOrchestrator:
         opener = _build_caller_address(caller_name, fallback="Good")
         if _is_granted_permission(browser_camera_permission):
             text = (
-                f"{opener}. I can see your camera permission is already available. "
-                "Press the Grant Camera Access button now so I can see the room feed."
+                f"{opener}. Press Grant Camera Access now so I can see the room."
             )
         else:
             text = (
-                f"{opener}. Now I need the room feed. "
-                "Press the Grant Camera Access button and accept the browser popup so I can see what we are working with."
+                f"{opener}. Now I need the room. "
+                "Press Grant Camera Access and accept the popup."
             )
         return OperatorGuidanceDirective(
             beat="camera_request",
             text=text,
         )
+
     def build_room_sweep_guidance(self) -> OperatorGuidanceDirective:
         return OperatorGuidanceDirective(
             beat="room_sweep",
-            text=(
-                "Good. Now stand in the center of the room and slowly pan the camera around "
-                "in a full circle. Take about five seconds for a 360-degree view. "
-                "Keep the doorway, mirrors, sinks, tables, and lights in frame when you can. "
-                "Make sure the room is well-lit and the camera is steady. "
-                "If a doorway, mirror, or work surface matters later and I cannot see it, I will stop you and ask you to show it again. "
-                "I need a clear feed - if the image is too dark or blurry, I will ask you to try again. "
-                "I need to scan the full room before we begin containment."
-            ),
+            text=ROOM_SCAN_PROMPT,
         )
 
     def build_calibration_acknowledgement(self) -> OperatorGuidanceDirective:
         return OperatorGuidanceDirective(
             beat="calibration_acknowledged",
             text=(
-                "Calibration sweep received. I have enough of the room to begin containment. "
-                "This feed gives me enough environment detail to start, but I will call out any area I cannot see clearly. "
-                "Initial readings show elevated residual activity in this space. "
-                "Containment protocol is warranted. Stay with me."
+                "Room view received. I have enough to begin. "
+                "Readings are elevated. Containment starts now."
             ),
         )
 
@@ -416,12 +407,6 @@ def _int_or_none(value: Any) -> int | None:
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return None
-
-
-
-
-
-
 
 
 

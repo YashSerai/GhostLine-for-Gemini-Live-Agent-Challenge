@@ -1,51 +1,38 @@
-﻿"""Fixed demo-mode dialogue pack - optimized for Gemini Live Agent Challenge."""
+"""Fixed demo-mode dialogue pack - optimized for Gemini Live Agent Challenge."""
 
 from __future__ import annotations
 
 from typing import Any, Final
+
+from .room_scan_copy import ROOM_SCAN_PROMPT
 
 # --------------------------------------------------------------------------- #
 # Opener & mic test                                                             #
 # --------------------------------------------------------------------------- #
 
 DEMO_OPENER_LINE_GRANTED: Final[str] = (
-    "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
-    "I see your microphone is connected to the session, but I need explicit permission to hear you. "
-    "Please press the 'Grant Microphone Access' button on your interface now."
+    "Ghostline, Containment Desk. The Archivist speaking. "
+    "Press Grant Microphone Access now."
 )
 
 DEMO_OPENER_LINE_PROMPT: Final[str] = (
-    "Thank you for calling Ghostline. This is the Containment Desk, the Archivist speaking. "
-    "I need explicit permission to hear you. When you press the 'Grant Microphone Access' button, "
-    "a browser popup will come asking to grant access. Please accept it now."
+    "Ghostline, Containment Desk. The Archivist speaking. "
+    "Press Grant Microphone Access and accept the popup now."
 )
-
-
-
 
 # --------------------------------------------------------------------------- #
 # Camera & room scan                                                            #
 # --------------------------------------------------------------------------- #
 
 DEMO_CAMERA_REQUEST_LINE: Final[str] = (
-    "Your voice is clear. Now I need the room feed. I need deliberate permission. "
-    "Please press the Grant Camera Access button so I can see what we're working with."
+    "Good. Press Grant Camera Access and accept the popup now so I can see the room."
 )
 
-DEMO_ROOM_SCAN_LINE: Final[str] = (
-    "Good. Now stand in the center of the room and slowly pan the camera around "
-    "in a full circle. Take about five seconds for a 360-degree view. "
-    "Make sure the room is well-lit and the camera is steady. "
-    "I need a clear feed - if the image is too dark or blurry, I will ask you to try again. "
-    "I need to scan the full room before we begin containment."
-)
+DEMO_ROOM_SCAN_LINE: Final[str] = ROOM_SCAN_PROMPT
 
 DEMO_ROOM_SCAN_ASSESSMENT_LINE: Final[str] = (
-    "Calibration sweep received. Our sensors are now processing the "
-    "spatial data. Initial readings show elevated residual activity "
-    "in this area. Spectral displacement concentrated near the "
-    "threshold zone. This is consistent with a Class-2 residential "
-    "haunting. Containment protocol is warranted. Stay with me."
+    "Room view received. I have enough to begin. "
+    "Readings are elevated. Containment starts now."
 )
 
 # --------------------------------------------------------------------------- #
@@ -147,6 +134,3 @@ __all__ = [
     "build_demo_task_assignment_line",
     "get_demo_flavor_for_task",
 ]
-
-
-
