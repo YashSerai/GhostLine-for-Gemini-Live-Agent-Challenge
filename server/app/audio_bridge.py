@@ -667,6 +667,7 @@ class SessionAudioBridge:
         self._demo_barge_in_completed = False
         self._suppress_operator_output_transcripts = False
         self._operator_turn_active = False
+        self.reset_room_scan_readiness()
 
     def update_session_context(
         self,
@@ -678,6 +679,9 @@ class SessionAudioBridge:
         self._camera_ready_for_model = camera_ready
         if not camera_ready:
             self._has_received_visual_frame = False
+            self.reset_room_scan_readiness()
+        elif state_name != "room_sweep":
+            self.reset_room_scan_readiness()
 
     def _is_strict_setup_state(self) -> bool:
         return self._session_state_name in {"microphone_request", "camera_request"}
@@ -695,6 +699,7 @@ class SessionAudioBridge:
             self._discard_operator_audio = False
             self._pending_epoch_advance = False
             self._operator_turn_active = False
+            self.reset_room_scan_readiness()
             return
 
         await self._forward_envelope(
@@ -716,6 +721,7 @@ class SessionAudioBridge:
         self._discard_operator_audio = False
         self._pending_epoch_advance = False
         self._operator_turn_active = False
+        self.reset_room_scan_readiness()
 
         if self._receive_task is not None:
             self._receive_task.cancel()
@@ -987,6 +993,8 @@ class SessionAudioBridge:
                     session_id=self.session_id,
                     reason="target_line_completed_without_interrupt",
                 )
+            if completed and self._room_scan_eval_pending:
+                await self._finalize_room_scan_readiness_check(is_final=True)
             if completed:
                 self._setup_guidance_turn_active = False
                 self._suppress_operator_output_transcripts = False
@@ -1006,6 +1014,20 @@ class SessionAudioBridge:
                 is_final = bool(event.payload.get("finished", False))
                 if direction == "output":
                     self._operator_turn_active = True
+                if direction == "output" and self._room_scan_eval_pending:
+                    self._room_scan_eval_buffer = (
+                        f"{self._room_scan_eval_buffer} {text.strip()}".strip()
+                    )
+                    log_event(
+                        LOGGER,
+                        logging.INFO,
+                        "room_scan_eval_transcript_received",
+                        session_id=self.session_id,
+                        finished=is_final,
+                        text_preview=text[:80],
+                    )
+                    await self._finalize_room_scan_readiness_check(is_final=is_final)
+                    return
                 if direction == "output" and (
                     self._suppress_operator_output_transcripts
                     or self._should_block_autonomous_setup_output()
@@ -1129,6 +1151,7 @@ class SessionAudioBridge:
             reason = parsed_reason or reason
 
         self._room_scan_eval_pending = False
+        self._operator_turn_active = False
         self._room_scan_status = status
         self._room_scan_reason = None if status == "ready" else reason
         log_event(

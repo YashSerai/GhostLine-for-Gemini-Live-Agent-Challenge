@@ -110,7 +110,6 @@ export function resolveAutomatedSoundTrigger(
     "verification_success",
     "task_assigned",
     "door_creak",
-    "camera_granted",
   ];
 
   for (const trigger of orderedTriggers) {
@@ -189,3 +188,4 @@ function didTriggerOccur(
 function isConnected(status: SessionConnectionStatus | null): boolean {
   return status === "connected";
 }
+
