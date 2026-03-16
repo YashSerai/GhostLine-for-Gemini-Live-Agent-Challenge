@@ -77,9 +77,9 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "calibration": ("camera_request", "task_assigned", "paused", "ended"),
     "task_assigned": ("camera_request", "waiting_ready", "swap_pending", "paused", "ended"),
     "waiting_ready": ("camera_request", "verifying", "swap_pending", "paused", "ended"),
-    "verifying": ("camera_request", "diagnosis_beat", "recovery_active", "paused", "ended"),
+    "verifying": ("camera_request", "diagnosis_beat", "recovery_active", "completed", "paused", "ended"),
     "diagnosis_beat": ("camera_request", "task_assigned", "completed", "case_report", "paused", "ended"),
-    "recovery_active": ("camera_request", "waiting_ready", "swap_pending", "paused", "ended"),
+    "recovery_active": ("camera_request", "waiting_ready", "verifying", "swap_pending", "paused", "ended"),
     "swap_pending": ("camera_request", "task_assigned", "waiting_ready", "diagnosis_beat", "completed", "case_report", "paused", "ended"),
     "paused": (
         "microphone_request",
@@ -855,8 +855,15 @@ class SessionStateMachine:
         self.classification_reason = decision.reason
 
     def _build_allowed_actions(self) -> dict[str, bool]:
+        verification_class = _task_context_value(
+            self.current_task_context,
+            "verificationClass",
+        )
         return {
-            "canVerify": self.state in _ALLOWED_VERIFY_STATES,
+            "canVerify": (
+                self.state in _ALLOWED_VERIFY_STATES
+                and verification_class != "self_report"
+            ),
             "canSwap": self.state in _ALLOWED_SWAP_STATES,
             "canPause": self.state in _ALLOWED_PAUSE_STATES,
             "canResume": self.state == "paused",
@@ -1138,5 +1145,9 @@ def _utc_now_iso() -> str:
 
 
 __all__ = ["SessionStateMachine", "SessionStateMachineError"]
+
+
+
+
 
 

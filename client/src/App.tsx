@@ -210,6 +210,12 @@ function formatPermissionStage(stage: PermissionStage): string {
 }
 
 
+function isSelfReportTask(
+  activeTaskContext: VerificationTaskContext | null,
+): boolean {
+  return activeTaskContext?.verificationClass === "self_report";
+}
+
 function buildActiveTaskInstruction(
   activeTaskContext: VerificationTaskContext | null,
 ): string | null {
@@ -231,6 +237,18 @@ function buildActiveTaskInstruction(
     activeTaskContext.operatorDescription.trim().length > 0
       ? activeTaskContext.operatorDescription.trim()
       : "Perform the current containment step once, keep the frame readable, then stop.";
+
+  if (isSelfReportTask(activeTaskContext)) {
+    if (activeTaskContext.taskId === "T14") {
+      return `Current task: ${taskName}. ${operatorDescription} Wait for the sound cue to finish, then describe the sound out loud. The operator will resolve this live without Ready to Verify.`;
+    }
+
+    if (activeTaskContext.taskId === "T7") {
+      return `Current task: ${taskName}. ${operatorDescription} Repeat the containment phrase out loud and the operator will judge it live. No Ready to Verify is needed for this step.`;
+    }
+
+    return `Current task: ${taskName}. ${operatorDescription} Answer out loud and the operator will resolve this step live. No Ready to Verify is needed.`;
+  }
 
   return `First task: ${taskName}. Exact action: ${operatorDescription} When you are finished, say Ready to Verify or press the Ready to Verify button.`;
 }
@@ -616,6 +634,57 @@ function buildArchiveReferences(caseId: string): string[] {
   });
 }
 
+function formatTaskRoleCategoryLabel(roleCategory: string): string {
+  return roleCategory
+    .split("_")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function buildCaseReportAssessmentCopy(
+  verdict: string | null,
+  classificationLabel: string,
+  resolvedTaskCount: number,
+  totalTaskCount: number,
+  containmentScore: number | null,
+): string {
+  const classification = classificationLabel.trim().length > 0
+    ? classificationLabel
+    : "unclassified incident";
+  const coverage = totalTaskCount > 0
+    ? `${resolvedTaskCount} of ${totalTaskCount} protocol steps resolved live.`
+    : "Protocol completion data unavailable.";
+  const scoreLine = containmentScore !== null
+    ? `Containment effectiveness rated ${containmentScore} percent.`
+    : null;
+
+  if (verdict === "secured") {
+    return [
+      `Incident profile logged as ${classification}.`,
+      coverage,
+      scoreLine,
+      "Boundary integrity held through the closing sequence and the site is clear to stand down.",
+    ].filter(Boolean).join(" ");
+  }
+
+  if (verdict === "partial") {
+    return [
+      `Incident profile logged as ${classification}.`,
+      coverage,
+      scoreLine,
+      "The room is stabilized, but residual activity protocols should remain in place until the pressure fully decays.",
+    ].filter(Boolean).join(" ");
+  }
+
+  return [
+    `Incident profile logged as ${classification}.`,
+    coverage,
+    scoreLine,
+    "Containment did not fully lock. Treat the room as unstable and maintain distance until the desk can reassess.",
+  ].filter(Boolean).join(" ");
+}
+
 function App() {
   const [browserMicPermission, setBrowserMicPermission] = useState<string>("prompt");
   const [browserCameraPermission, setBrowserCameraPermission] = useState<string>("prompt");
@@ -714,6 +783,7 @@ function App() {
     taskControls.activeTaskContext ??
     verificationResult.taskContext ??
     verificationFlow.taskContext;
+  const activeTaskIsSelfReport = isSelfReportTask(activeTaskContext);
   const soundTriggerState = useSoundCueTriggers({
     cameraReady: camera.cameraReady,
     connectionStatus: status,
@@ -852,7 +922,7 @@ function App() {
     operatorAudio.error ??
     soundPlayback.error ??
     microphone.error ??
-    lastError;
+    (status !== "connected" ? lastError : null);
   const fallbackOperatorPlaceholder = getOperatorPlaceholder(
     status,
     permissionStage,
@@ -987,18 +1057,21 @@ function App() {
       ? "Session ended. Media stopped and report staged below."
       : sessionState.state === "paused"
         ? "Session paused. Verification blocked until resumed."
-        : buildVerificationControlCopy(
-            isTransportActive,
-            permissionStage,
-            verificationFlow.phase,
-            verificationResult,
-          );
+        : areTaskControlsArmed && activeTaskIsSelfReport
+          ? "This step resolves from live speech instead of a camera check. Listen, answer out loud, and the operator will judge it in real time."
+          : buildVerificationControlCopy(
+              isTransportActive,
+              permissionStage,
+              verificationFlow.phase,
+              verificationResult,
+            );
   const canDemoReset = isDemoMode && !isDemoResetting;
   const isRecoveryRerouteRequired =
     verificationResult.status === "unconfirmed" &&
     verificationResult.retryAllowed === false;
   const canReadyToVerify =
     areTaskControlsArmed &&
+    !activeTaskIsSelfReport &&
     sessionState.allowedActions.canVerify &&
     effectiveCameraReady &&
     effectiveMicStreaming &&
@@ -1182,6 +1255,21 @@ function App() {
     const points = cr.counts.confirmed * 100 + cr.counts.user_confirmed_only * 60;
     return Math.round(points / (total * 100) * 100);
   })();
+  const resolvedTaskCount = sessionState.caseReport
+    ? sessionState.caseReport.counts.confirmed + sessionState.caseReport.counts.user_confirmed_only
+    : null;
+  const totalReportedTaskCount = sessionState.caseReport && resolvedTaskCount !== null
+    ? resolvedTaskCount + sessionState.caseReport.counts.unverified + sessionState.caseReport.counts.skipped
+    : null;
+  const caseReportAssessmentCopy = sessionState.caseReport && resolvedTaskCount !== null && totalReportedTaskCount !== null
+    ? buildCaseReportAssessmentCopy(
+      sessionState.caseReport.finalVerdict,
+      sessionState.caseReport.incidentClassificationLabel,
+      resolvedTaskCount,
+      totalReportedTaskCount,
+      containmentScore,
+    )
+    : null;
 
   // --- Share report ---
   async function handleShareReport() {
@@ -1667,19 +1755,23 @@ function App() {
                      verificationResult.status === "confirmed" ? "Complete" : "In Progress"}
                   </span>
                   <div style={{ flex: 1 }} />
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    style={{ fontSize: "11px", padding: "4px 12px" }}
-                    disabled={!canReadyToVerify}
-                    onClick={() => {
-                      taskControls.requestReadyToVerify({
-                        taskContext: activeTaskContext,
-                      });
-                    }}
-                  >
-                    {taskControls.readyToVerifyPending ? "Verifying..." : "Ready to Verify"}
-                  </button>
+                  {activeTaskIsSelfReport ? (
+                    <span className="control-chip">Resolve Live By Voice</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ fontSize: "11px", padding: "4px 12px" }}
+                      disabled={!canReadyToVerify}
+                      onClick={() => {
+                        taskControls.requestReadyToVerify({
+                          taskContext: activeTaskContext,
+                        });
+                      }}
+                    >
+                      {taskControls.readyToVerifyPending ? "Verifying..." : "Ready to Verify"}
+                    </button>
+                  )}
                 </div>
               </div>
             ) : null}
@@ -1815,6 +1907,49 @@ function App() {
               {formatVerdictLabel(sessionState.caseReport.finalVerdict)}
             </span>
           </div>
+          <div className="case-report-hero">
+            <article className={`case-report-hero-main case-report-hero-main-${sessionState.caseReport.closingTemplate.tone}`}>
+              <div className="case-report-hero-copy">
+                <p className="case-report-summary-label">Containment Desk Assessment</p>
+                <h3>{sessionState.caseReport.incidentClassificationLabel}</h3>
+                <p className="case-report-summary-copy">
+                  {caseReportAssessmentCopy ?? sessionState.caseReport.incidentClassificationSummary}
+                </p>
+              </div>
+              <div className="case-report-hero-badges">
+                {resolvedTaskCount !== null && totalReportedTaskCount !== null ? (
+                  <span className="control-chip">Protocol {resolvedTaskCount}/{totalReportedTaskCount} resolved</span>
+                ) : null}
+                {containmentScore !== null ? (
+                  <span className="control-chip">Effectiveness {containmentScore}%</span>
+                ) : null}
+                {callStartTime !== null ? (
+                  <span className="control-chip">Duration {formatTimer(elapsedSeconds)}</span>
+                ) : null}
+              </div>
+            </article>
+            <div className="case-report-hero-stats">
+              <article className="case-report-stat-card">
+                <span className="meta-label">Protocol Completion</span>
+                <strong>
+                  {resolvedTaskCount !== null && totalReportedTaskCount !== null
+                    ? `${resolvedTaskCount}/${totalReportedTaskCount}`
+                    : "--"}
+                </strong>
+                <p>Resolved live</p>
+              </article>
+              <article className="case-report-stat-card">
+                <span className="meta-label">Containment Score</span>
+                <strong>{containmentScore !== null ? `${containmentScore}%` : "--"}</strong>
+                <p>Weighted verification result</p>
+              </article>
+              <article className="case-report-stat-card">
+                <span className="meta-label">Field Status</span>
+                <strong>{formatVerdictLabel(sessionState.caseReport.finalVerdict)}</strong>
+                <p>{sessionState.caseReport.closingTemplate.heading}</p>
+              </article>
+            </div>
+          </div>
           <div className="case-report-meta">
             <article>
               <span className="meta-label">Case ID</span>
@@ -1900,28 +2035,44 @@ function App() {
             Share Containment Report
           </button>
 
+          <div className="case-report-task-list-heading">
+            <div>
+              <p className="case-report-summary-label">Protocol Resolution Trail</p>
+              <h3>Task Timeline</h3>
+            </div>
+            {resolvedTaskCount !== null && totalReportedTaskCount !== null ? (
+              <span className="control-chip">
+                {resolvedTaskCount}/{totalReportedTaskCount} steps resolved
+              </span>
+            ) : null}
+          </div>
           <div className="case-report-task-list" role="list">
-            {sessionState.caseReport.tasks.map((task) => (
+            {sessionState.caseReport.tasks.map((task, index) => (
               <article className="case-report-task-row" key={`${task.taskId}-${task.origin}`} role="listitem">
-                <div className="case-report-task-header">
-                  <div>
-                    <p className="case-report-task-step">{task.protocolStep ?? "Unmapped step"}</p>
-                    <h3>
-                      {task.taskName} <span>({task.taskId})</span>
-                    </h3>
-                  </div>
-                  <span
-                    className={`case-report-outcome case-report-outcome-${task.outcome.replace(/_/g, "-")}`}
-                  >
-                    {formatCaseReportOutcome(task.outcome)}
-                  </span>
+                <div className="case-report-task-index" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
                 </div>
-                <div className="case-report-task-meta">
-                  <span className="control-chip">Tier {task.taskTier}</span>
-                  <span className="control-chip">{task.taskRoleCategory}</span>
-                  <span className="control-chip">
-                    {task.origin === "substitute" ? "Substitute Task" : "Planned Task"}
-                  </span>
+                <div className="case-report-task-body">
+                  <div className="case-report-task-header">
+                    <div>
+                      <p className="case-report-task-step">{task.protocolStep ?? "Unmapped step"}</p>
+                      <h3>
+                        {task.taskName} <span>({task.taskId})</span>
+                      </h3>
+                    </div>
+                    <span
+                      className={`case-report-outcome case-report-outcome-${task.outcome.replace(/_/g, "-")}`}
+                    >
+                      {formatCaseReportOutcome(task.outcome)}
+                    </span>
+                  </div>
+                  <div className="case-report-task-meta">
+                    <span className="control-chip">Tier {task.taskTier}</span>
+                    <span className="control-chip">{formatTaskRoleCategoryLabel(task.taskRoleCategory)}</span>
+                    <span className="control-chip">
+                      {task.origin === "substitute" ? "Substitute Task" : "Planned Task"}
+                    </span>
+                  </div>
                 </div>
               </article>
             ))}
@@ -1933,6 +2084,17 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
+
+
 
 
 

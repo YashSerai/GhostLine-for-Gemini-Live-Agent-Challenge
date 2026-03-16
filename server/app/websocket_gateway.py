@@ -39,6 +39,13 @@ from .operator_guidance import (
     NormalModeOperatorGuidanceOrchestrator,
     OperatorGuidanceDirective,
 )
+from .self_report_flow import (
+    CONTAINMENT_PHRASE_TEXT,
+    DEMO_SOUND_PROMPT_DELAY_SECONDS,
+    build_self_report_verify_reminder,
+    is_self_report_task_context,
+    resolve_self_report_response,
+)
 from .session_state_machine import SessionStateMachine, SessionStateMachineError
 from .session_transport import (
     InvalidSessionEnvelope,
@@ -54,8 +61,8 @@ LOGGER = logging.getLogger("ghostline.backend.websocket")
 _NO_ACK_MESSAGE_TYPES = frozenset({"audio_chunk", "room_scan_frame", "task_vision_frame"})
 _PLACEHOLDER_ONLY_TYPES = frozenset({"transcript"})
 _GUIDANCE_TRANSCRIPT_SOURCES = BACKEND_AUTHORED_TRANSCRIPT_SOURCES
-_MIN_ROOM_SCAN_BRIGHTNESS = 15.0
-_MIN_ROOM_SCAN_DETAIL = 0.05
+_MIN_ROOM_SCAN_BRIGHTNESS = 8.0
+_MIN_ROOM_SCAN_DETAIL = 0.02
 _MIN_ROOM_SCAN_LIGHTING_SCORE = _MIN_ROOM_SCAN_BRIGHTNESS / 255.0
 _MIN_VALIDATED_ROOM_SCAN_FRAMES = 3
 _ROOM_SCAN_REJECTION_LINE = (
@@ -63,16 +70,19 @@ _ROOM_SCAN_REJECTION_LINE = (
 )
 
 _ROOM_SCAN_REJECTION_LINES: dict[str, str] = {
-    "too_dark": "The frame is too dark. Fix the light or point the camera where I can see the room.",
+    "too_dark": "The room is a little too dark to read clearly. Add a bit more light or point the camera toward the lit part of the room.",
     "too_blurry": "Too much blur. Hold the camera still so I can confirm the room.",
     "low_detail": "Too much blur. Hold the camera still so I can confirm the room.",
     "too_close": "The camera is too close. Pull back and show me the room from a corner or doorway.",
-    "too_narrow": "Step back a little and hold the camera steady so I can see more of the room.",
+    "too_narrow": "I can use a normal room view, but I need a little more of the space in frame. Step back slightly and hold still.",
     "too_unstable": "The feed is unstable. Hold the camera still until the room stays steady.",
     "no_room_visible": "I still do not have the room in view. Turn the camera outward and show me the space.",
-    "insufficient_view": "I need a clearer, steadier room view before we continue.",
+    "insufficient_view": "I just need a steadier, readable room view before we continue.",
     "unreadable": _ROOM_SCAN_REJECTION_LINE,
 }
+
+class SessionTransportClosedError(RuntimeError):
+    """Raised when the client WebSocket can no longer accept messages."""
 
 
 class SessionConnectionManager:
@@ -97,7 +107,10 @@ class SessionConnectionManager:
     async def send_json(self, session_id: str, message: dict[str, Any]) -> None:
         websocket = self._connections.get(session_id)
         if websocket is not None:
-            await websocket.send_json(message)
+            try:
+                await websocket.send_json(message)
+            except (RuntimeError, WebSocketDisconnect) as exc:
+                raise SessionTransportClosedError(str(exc)) from exc
 
 
 async def _receive_json_message(websocket: WebSocket) -> Any:
@@ -299,9 +312,9 @@ def register_websocket_gateway(app: FastAPI) -> None:
         demo_calibration_sent = False
         demo_diagnosis_question_sent = False
         demo_diagnosis_interpretation_sent = False
-        demo_pending_task_guidance: str | None = None
         demo_final_closure_sent = False
         demo_case_report_auto_end_triggered = False
+        demo_self_report_attempt_state: dict[str, dict[str, int]] = {}
         room_scan_context_primed = False
         task_vision_last_primed_id: str | None = None
         room_scan_usable_frame_count = 0
@@ -547,6 +560,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
 
             await handle_demo_dialogue_hooks(message)
             await handle_normal_guidance_hooks(message)
+            await handle_self_report_hooks(message)
             if changed:
                 await state_machine.emit_snapshot()
 
@@ -594,6 +608,221 @@ def register_websocket_gateway(app: FastAPI) -> None:
                     },
                 }
             )
+        async def emit_demo_guidance_for_task(
+            task_id: str,
+            text: str,
+            *,
+            delay_seconds: float = 0.0,
+        ) -> None:
+            if delay_seconds > 0:
+                await asyncio.sleep(delay_seconds)
+            current_task_id = _task_id_from_context(state_machine.current_task_context)
+            if current_task_id != task_id:
+                return
+            if state_machine.state not in {"task_assigned", "waiting_ready", "recovery_active", "diagnosis_beat"}:
+                return
+            await emit_demo_guidance(text)
+
+        def schedule_demo_guidance_for_task(
+            task_id: str,
+            text: str,
+            *,
+            delay_seconds: float = 0.0,
+        ) -> None:
+            async def runner() -> None:
+                try:
+                    await emit_demo_guidance_for_task(
+                        task_id,
+                        text,
+                        delay_seconds=delay_seconds,
+                    )
+                except SessionTransportClosedError as exc:
+                    log_event(
+                        LOGGER,
+                        logging.WARNING,
+                        "demo_guidance_send_failed",
+                        session_id=session_id,
+                        task_id=task_id,
+                        detail=str(exc),
+                    )
+                except Exception as exc:
+                    log_event(
+                        LOGGER,
+                        logging.ERROR,
+                        "demo_guidance_task_failed",
+                        session_id=session_id,
+                        task_id=task_id,
+                        detail=str(exc),
+                        error_type=type(exc).__name__,
+                    )
+                    LOGGER.exception(
+                        "Unhandled exception in delayed demo guidance task for session %s",
+                        session_id,
+                    )
+
+            asyncio.create_task(runner())
+
+        async def emit_self_report_confirmation(
+            *,
+            confidence_band: str,
+            last_verified_item: str | None,
+            notes: str | None,
+            reason: str,
+            transcript_text: str,
+        ) -> None:
+            task_context = state_machine.current_task_context
+            if not isinstance(task_context, dict):
+                return
+            previous_state = state_machine.begin_verification_request()
+            try:
+                await forward_component_envelope(
+                    {
+                        "type": "verification_result",
+                        "sessionId": session_id,
+                        "payload": {
+                            "attemptId": f"self-report-{uuid4().hex}",
+                            "status": "confirmed",
+                            "confidenceBand": confidence_band,
+                            "reason": reason,
+                            "blockReason": None,
+                            "lastVerifiedItem": last_verified_item,
+                            "isMock": False,
+                            "mockLabel": None,
+                            "notes": notes,
+                            "currentPathMode": state_machine.current_path_mode,
+                            "taskContext": dict(task_context),
+                            "rawTranscriptSnippet": transcript_text,
+                        },
+                    }
+                )
+            except Exception:
+                state_machine.rollback(previous_state, "verifying")
+                raise
+
+        def recent_user_transcripts_for_current_task(
+            task_context: dict[str, Any] | None,
+        ) -> tuple[str, ...]:
+            task_id = _task_id_from_context(task_context)
+            if task_id is None:
+                return ()
+
+            assigned_at: str | None = None
+            for entry in reversed(state_machine.task_history):
+                if entry.get("taskId") != task_id or entry.get("outcome") != "assigned":
+                    continue
+                raw_at = entry.get("at")
+                if isinstance(raw_at, str) and raw_at.strip():
+                    assigned_at = raw_at.strip()
+                break
+
+            transcripts: list[str] = []
+            for reference in state_machine.transcript_references:
+                if reference.get("speaker") != "user":
+                    continue
+                transcript_text = reference.get("text")
+                if not isinstance(transcript_text, str) or not transcript_text.strip():
+                    continue
+                reference_at = reference.get("at")
+                if (
+                    assigned_at is not None
+                    and isinstance(reference_at, str)
+                    and reference_at.strip()
+                    and reference_at.strip() < assigned_at
+                ):
+                    continue
+                transcripts.append(transcript_text.strip())
+            return tuple(transcripts)
+
+        def transcript_window_token_count(
+            transcript_lines: tuple[str, ...],
+            *,
+            baseline_index: int = 0,
+        ) -> int:
+            if baseline_index >= len(transcript_lines):
+                return 0
+            return len(" ".join(transcript_lines[baseline_index:]).split())
+
+        async def handle_self_report_hooks(message: dict[str, Any]) -> None:
+            if message.get("type") != "transcript":
+                return
+            payload = message.get("payload")
+            if not isinstance(payload, dict):
+                return
+            if payload.get("speaker") != "user" or payload.get("isFinal") is not True:
+                return
+            task_context = state_machine.current_task_context
+            if not is_self_report_task_context(task_context):
+                return
+            if state_machine.state not in {"waiting_ready", "recovery_active"}:
+                return
+            text = payload.get("text")
+            if not isinstance(text, str) or not text.strip():
+                return
+
+            task_id = _task_id_from_context(task_context)
+            recent_user_transcripts = recent_user_transcripts_for_current_task(task_context)
+            if state_machine.demo_mode_enabled and task_id == "T7":
+                attempt_state = demo_self_report_attempt_state.get(
+                    task_id,
+                    {"attempt_count": 0, "baseline_index": 0},
+                )
+                attempt_count = attempt_state.get("attempt_count", 0)
+                baseline_index = attempt_state.get("baseline_index", 0)
+                token_count = transcript_window_token_count(
+                    recent_user_transcripts,
+                    baseline_index=baseline_index,
+                )
+
+                if attempt_count == 0:
+                    if token_count >= 8 and bridge is not None:
+                        demo_self_report_attempt_state[task_id] = {
+                            "attempt_count": 1,
+                            "baseline_index": len(recent_user_transcripts),
+                        }
+                        await bridge.interrupt_operator_turn(reason="demo_containment_phrase_retry")
+                        await bridge.send_operator_guidance(
+                            "Again. Stronger this time. More power. Repeat exactly after me: "
+                            f"'{CONTAINMENT_PHRASE_TEXT}'",
+                            source="operator_guidance",
+                        )
+                    return
+
+                if token_count < 3:
+                    return
+
+                demo_self_report_attempt_state[task_id] = {
+                    "attempt_count": 2,
+                    "baseline_index": len(recent_user_transcripts),
+                }
+                await emit_self_report_confirmation(
+                    confidence_band="medium",
+                    last_verified_item=(
+                        task_context.get("taskName")
+                        if isinstance(task_context, dict)
+                        else None
+                    ),
+                    notes="Demo mode resolved the containment phrase on the second live attempt.",
+                    reason="The caller repeated the containment phrase with stronger delivery on the second demo attempt.",
+                    transcript_text=text.strip(),
+                )
+                return
+
+            resolution = resolve_self_report_response(task_context, text)
+            if resolution.action == "confirm" and resolution.reason is not None:
+                await emit_self_report_confirmation(
+                    confidence_band=resolution.confidence_band or "medium",
+                    last_verified_item=resolution.last_verified_item,
+                    notes=resolution.notes,
+                    reason=resolution.reason,
+                    transcript_text=text.strip(),
+                )
+                return
+            if resolution.action == "reprompt" and resolution.operator_line is not None and bridge is not None:
+                await bridge.interrupt_operator_turn(reason="self_report_reprompt")
+                await bridge.send_operator_guidance(
+                    resolution.operator_line,
+                    source="operator_guidance",
+                )
 
 
         async def update_demo_barge_in(payload: dict[str, Any]) -> None:
@@ -641,7 +870,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
             nonlocal demo_calibration_sent
             nonlocal demo_diagnosis_question_sent
             nonlocal demo_diagnosis_interpretation_sent
-            nonlocal demo_pending_task_guidance
+
             nonlocal demo_final_closure_sent
             nonlocal demo_case_report_auto_end_triggered
 
@@ -654,20 +883,6 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 return
 
             if message_type == "transcript":
-                if (
-                    demo_diagnosis_question_sent
-                    and not demo_diagnosis_interpretation_sent
-                    and payload.get("speaker") == "user"
-                    and payload.get("isFinal") is True
-                    and isinstance(payload.get("text"), str)
-                    and payload.get("text").strip()
-                ):
-                    demo_diagnosis_interpretation_sent = True
-                    await emit_demo_guidance(DEMO_DIAGNOSIS_INTERPRETATION_LINE)
-                    if demo_pending_task_guidance is not None:
-                        pending_guidance = demo_pending_task_guidance
-                        demo_pending_task_guidance = None
-                        await emit_demo_guidance(pending_guidance)
                 return
 
             if message_type == "verification_result":
@@ -678,9 +893,48 @@ def register_websocket_gateway(app: FastAPI) -> None:
                     and isinstance(v_task_ctx, dict)
                     and isinstance(v_task_ctx.get("taskId"), str)
                 ):
-                    flavor = get_demo_flavor_for_task(v_task_ctx["taskId"])
+                    if bridge is not None:
+                        bridge.update_session_context(
+                            state_name=state_machine.state,
+                            camera_ready=state_machine.camera_ready,
+                        )
+                    completed_task_id = v_task_ctx["taskId"]
+                    flavor = get_demo_flavor_for_task(completed_task_id)
                     if flavor is not None:
                         await emit_demo_guidance(flavor)
+
+                    next_task_ctx = (
+                        state_machine.current_task_context
+                        if isinstance(state_machine.current_task_context, dict)
+                        else None
+                    )
+                    next_task_id = (
+                        next_task_ctx.get("taskId")
+                        if isinstance(next_task_ctx, dict)
+                        else None
+                    )
+                    if (
+                        isinstance(next_task_id, str)
+                        and next_task_id.strip()
+                        and next_task_id != completed_task_id
+                        and state_machine.state in {"task_assigned", "waiting_ready"}
+                    ):
+                        next_task_guidance = _build_task_assignment_guidance(
+                            flavor_text_state_model,
+                            session_id,
+                            next_task_ctx,
+                            demo_mode_enabled=True,
+                        )
+                        if next_task_guidance is not None:
+                            demo_last_announced_task_id = next_task_id
+                            if next_task_id == "T14":
+                                schedule_demo_guidance_for_task(
+                                    next_task_id,
+                                    next_task_guidance,
+                                    delay_seconds=DEMO_SOUND_PROMPT_DELAY_SECONDS,
+                                )
+                            else:
+                                await emit_demo_guidance(next_task_guidance)
                 return
 
             if message_type != "session_state":
@@ -712,28 +966,41 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 demo_room_scan_sent = True
                 await emit_demo_guidance(DEMO_ROOM_SCAN_LINE)
 
-            if calibration_captured_at and not demo_calibration_sent:
-                demo_calibration_sent = True
-                await emit_demo_guidance(DEMO_ROOM_SCAN_ASSESSMENT_LINE)
-
-            if (
+            task_guidance: str | None = None
+            should_announce_new_task = (
                 isinstance(task_id, str)
                 and task_id.strip()
                 and task_id != demo_last_announced_task_id
                 and state_name in {"task_assigned", "waiting_ready"}
-            ):
+            )
+            if should_announce_new_task:
                 task_guidance = _build_task_assignment_guidance(
                     flavor_text_state_model,
                     session_id,
                     task_context,
                     demo_mode_enabled=True,
                 )
+
+            if calibration_captured_at and not demo_calibration_sent:
+                demo_calibration_sent = True
+                if task_guidance is not None and active_task_index == 0:
+                    demo_last_announced_task_id = task_id
+                    await emit_demo_guidance(
+                        f"{DEMO_ROOM_SCAN_ASSESSMENT_LINE} {task_guidance}"
+                    )
+                    task_guidance = None
+                else:
+                    await emit_demo_guidance(DEMO_ROOM_SCAN_ASSESSMENT_LINE)
+
+            if should_announce_new_task:
                 demo_last_announced_task_id = task_id
                 if task_guidance is not None:
-                    if active_task_index == 1 and not demo_diagnosis_question_sent:
-                        demo_pending_task_guidance = task_guidance
-                        demo_diagnosis_question_sent = True
-                        await emit_demo_guidance(DEMO_DIAGNOSIS_QUESTION_LINE)
+                    if task_id == "T14":
+                        schedule_demo_guidance_for_task(
+                            task_id,
+                            task_guidance,
+                            delay_seconds=DEMO_SOUND_PROMPT_DELAY_SECONDS,
+                        )
                     else:
                         await emit_demo_guidance(task_guidance)
 
@@ -804,19 +1071,35 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 await perform_room_scan_verification(payload)
                 return
 
-            try:
+            current_task_context = state_machine.current_task_context
+            if is_self_report_task_context(current_task_context):
                 if bridge is not None:
-                    if bridge.is_operator_turn_active():
-                        await bridge.interrupt_operator_turn(reason="task_verify_request")
+                    await bridge.interrupt_operator_turn(reason="self_report_verify_redirect")
+                    await bridge.send_operator_guidance(
+                        build_self_report_verify_reminder(current_task_context),
+                        source="operator_guidance",
+                    )
+                return
 
+            try:
+                prepared_payload = state_machine.prepare_verification_request(payload)
+
+                if bridge is not None:
+                    # Clear any active or queued operator speech so the
+                    # verification acknowledgment is heard before results.
+                    await bridge.interrupt_operator_turn(reason="task_verify_request")
                     await bridge.send_operator_guidance(
                         "Hold still. One second. Verifying.",
                         source="verification_flow",
                     )
-                    await bridge.wait_for_operator_turn_idle(timeout=12.0)
-                prepared_payload = state_machine.prepare_verification_request(payload)
+
                 previous_state = state_machine.begin_verification_request()
                 try:
+                    if bridge is not None:
+                        bridge.update_session_context(
+                            state_name="verifying",
+                            camera_ready=state_machine.camera_ready,
+                        )
                     await verification_flow.start_verification(prepared_payload)
                 except Exception:
                     state_machine.rollback(previous_state, "verifying")
@@ -824,6 +1107,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 await state_machine.emit_snapshot()
             except SessionStateMachineError as exc:
                 raise VerificationFlowError(str(exc)) from exc
+
 
         async def handle_swap_request_from_bridge(payload: dict[str, Any]) -> None:
             try:
@@ -861,6 +1145,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
             handle_swap_request=handle_swap_request_from_bridge,
             record_user_transcript=verification_flow.record_user_transcript,
             update_demo_barge_in=update_demo_barge_in,
+            record_hidden_operator_transcript=gemini_vision_engine.observe_operator_transcript,
         )
 
         # Attach the Gemini Live session to the vision engine so it can
@@ -943,18 +1228,7 @@ def register_websocket_gateway(app: FastAPI) -> None:
                             logging.INFO,
                             "cloud_proof_session_locator",
                             session_id=session_id,
-                            firestore_document_path=(
-                                firestore_session_store.document_path(session_id)
-                                if firestore_session_store is not None and getattr(firestore_session_store, "is_configured", False)
-                                else None
-                            ),
-                            firestore_collection=(
-                                getattr(firestore_session_store, "collection", None)
-                                if firestore_session_store is not None
-                                else None
-                            ),
                             log_query_hint=f'jsonPayload.session_id="{session_id}"',
-                            proof_endpoint="/ops/proof/active-session",
                         )
                     elif envelope.message_type == "mic_status":
                         verification_flow.update_microphone_state(envelope.payload)
@@ -1200,6 +1474,51 @@ def register_websocket_gateway(app: FastAPI) -> None:
         except WebSocketDisconnect as exc:
             disconnect_reason = "client_disconnect"
             disconnect_code = exc.code
+        except SessionTransportClosedError as exc:
+            disconnect_reason = "transport_send_failed"
+            disconnect_code = 1006
+            current_task_context = state_machine.current_task_context
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "websocket_transport_send_failed",
+                session_id=session_id,
+                detail=str(exc),
+                state=state_machine.state,
+                task_id=_task_id_from_context(current_task_context),
+                task_name=(
+                    current_task_context.get("taskName")
+                    if isinstance(current_task_context, dict)
+                    else None
+                ),
+            )
+        except Exception as exc:
+            disconnect_reason = "server_error"
+            disconnect_code = 1011
+            current_task_context = state_machine.current_task_context
+            log_event(
+                LOGGER,
+                logging.ERROR,
+                "websocket_gateway_unhandled_exception",
+                session_id=session_id,
+                detail=str(exc),
+                error_type=type(exc).__name__,
+                state=state_machine.state,
+                task_id=_task_id_from_context(current_task_context),
+                task_name=(
+                    current_task_context.get("taskName")
+                    if isinstance(current_task_context, dict)
+                    else None
+                ),
+            )
+            LOGGER.exception(
+                "Unhandled exception in WebSocket gateway for session %s",
+                session_id,
+            )
+            try:
+                await websocket.close(code=1011, reason="internal server error")
+            except Exception:
+                pass
         finally:
             if state_machine.state != "ended":
                 with_state_reason = disconnect_reason
@@ -1221,6 +1540,26 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 reason=disconnect_reason,
                 active_connections=manager.active_count,
             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

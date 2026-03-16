@@ -100,50 +100,20 @@ def _latest_visual_frame(context: VerificationContext):
     return None
 
 
-def _lighting_change_from_baseline(context: VerificationContext) -> float | None:
-    baseline = context.baseline_frame
-    current = _latest_visual_frame(context)
-    if baseline is None or current is None:
-        return None
-    if baseline.lighting_score is None or current.lighting_score is None:
-        return None
-    return abs(current.lighting_score - baseline.lighting_score)
-
-
-def _baseline_change_strength(context: VerificationContext) -> float | None:
-    baseline = context.baseline_frame
-    current = _latest_visual_frame(context)
-    if baseline is None or current is None:
-        return None
-    if not baseline.motion_signature or not current.motion_signature:
-        return None
-
-    sample_count = min(len(baseline.motion_signature), len(current.motion_signature))
-    if sample_count <= 0:
-        return None
-
-    total_distance = 0.0
-    for index in range(sample_count):
-        total_distance += abs(
-            baseline.motion_signature[index] - current.motion_signature[index]
-        )
-    normalized_distance = (total_distance / sample_count) / 255.0
-    lighting_delta = _lighting_change_from_baseline(context) or 0.0
-    return max(0.0, min(1.0, normalized_distance * 0.85 + lighting_delta * 0.15))
 def _evaluate_boundary_task(
     task: TaskDefinition,
     context: VerificationContext,
 ) -> VerificationDecision:
     quality = context.quality_metrics
     strong_visual = (
-        quality.lighting >= 0.5
-        and quality.blur <= 0.45
-        and quality.motion_stability >= 0.55
+        quality.lighting >= 0.45
+        and quality.blur <= 0.5
+        and quality.motion_stability >= 0.5
     )
     moderate_visual = (
-        quality.lighting >= 0.4
-        and quality.blur <= 0.6
-        and quality.motion_stability >= 0.45
+        quality.lighting >= 0.35
+        and quality.blur <= 0.65
+        and quality.motion_stability >= 0.4
     )
     path_support = (
         context.current_path_mode == "threshold"
@@ -153,41 +123,21 @@ def _evaluate_boundary_task(
         context,
         keywords=("door", "threshold", "closed", "shut", "boundary"),
     )
-    change_strength = _baseline_change_strength(context)
-    requires_before_after = task.id == "T2"
 
-    if strong_visual and path_support and (
-        not requires_before_after
-        or (change_strength is not None and change_strength >= 0.08)
-    ):
+    if strong_visual and path_support:
         return _decision(
             status="confirmed",
             confidence_band="high",
-            reason=(
-                "The boundary view is clear and it changed enough from the baseline to confirm the task."
-                if requires_before_after
-                else "Boundary framing stayed visible and stable across the verification capture."
-            ),
+            reason="The boundary view is clear enough to confirm the door or boundary is in the intended sealed state.",
             last_verified_item=task.name,
-            notes="Boundary verification used threshold framing plus before/after visual evidence when required.",
+            notes="Boundary verification used the current frame only and did not depend on a stored baseline image.",
         )
 
-    if requires_before_after and change_strength is not None and change_strength < 0.04:
-        return _decision(
-            status="unconfirmed",
-            confidence_band="low",
-            reason="I do not see enough change from the baseline view to confirm the boundary changed state.",
-            block_reason="The current view looks too similar to the baseline to honestly confirm the door or boundary changed.",
-            notes="Close-boundary verification now rejects unchanged before/after evidence.",
-        )
-
-    if moderate_visual and declaration and (
-        change_strength is None or change_strength >= 0.04
-    ):
+    if moderate_visual and declaration:
         return _decision(
             status="user_confirmed_only",
             confidence_band="medium",
-            reason="Boundary framing was partially usable, but not strong enough for full visual confirmation.",
+            reason="Boundary framing was usable, but not strong enough for a full visual confirmation.",
             last_verified_item=task.name,
             notes="Boundary task fell back to partial visual support plus user declaration.",
         )
@@ -195,10 +145,11 @@ def _evaluate_boundary_task(
     return _decision(
         status="unconfirmed",
         confidence_band="low",
-        reason="The boundary task could not be confirmed from the verification capture.",
+        reason="The boundary task could not be confirmed from the current verification capture.",
         block_reason=_visual_block_reason(context, prefer_threshold=True),
-        notes="Boundary task requires visible threshold framing without bluffing partial visibility.",
+        notes="Boundary task now judges only the current frame instead of comparing against a baseline.",
     )
+
 def _evaluate_illumination_task(
     task: TaskDefinition,
     context: VerificationContext,
@@ -208,50 +159,52 @@ def _evaluate_illumination_task(
         context,
         keywords=("light", "lamp", "brighter", "turned on", "switch"),
     )
-    lighting_delta = _lighting_change_from_baseline(context)
+    strong_visual = (
+        quality.lighting >= 0.7
+        and quality.blur <= 0.5
+        and quality.motion_stability >= 0.5
+    )
+    moderate_visual = (
+        quality.lighting >= 0.58
+        and quality.blur <= 0.62
+        and quality.motion_stability >= 0.42
+    )
 
-    if (
-        lighting_delta is not None
-        and lighting_delta >= 0.12
-        and quality.blur <= 0.55
-        and quality.motion_stability >= 0.45
-    ):
+    if strong_visual:
         return _decision(
             status="confirmed",
             confidence_band="high",
-            reason="The current scene is visibly brighter than the baseline view.",
+            reason="The current frame is bright and readable enough to confirm the illumination step.",
             last_verified_item=task.name,
-            notes="Illumination verification used explicit baseline-versus-current brightness change.",
+            notes="Illumination verification now judges only the current frame.",
         )
 
-    if lighting_delta is not None and lighting_delta < 0.05:
+    if quality.lighting < 0.45:
         return _decision(
             status="unconfirmed",
             confidence_band="low",
-            reason="The room does not look meaningfully brighter than the baseline view.",
-            block_reason="The scene brightness has not changed enough from the baseline to verify illumination honestly.",
-            notes="Illumination tasks now reject negligible before/after lighting change.",
+            reason="The current frame is still too dim to confirm the illumination step honestly.",
+            block_reason="The verification capture is still too dark to confirm the illumination step honestly.",
+            notes="Illumination verification no longer depends on a baseline comparison.",
         )
 
-    if declaration and (
-        (lighting_delta is not None and lighting_delta >= 0.07)
-        or quality.lighting >= 0.68
-    ):
+    if moderate_visual and declaration:
         return _decision(
             status="user_confirmed_only",
             confidence_band="medium",
-            reason="Lighting improved, but the evidence is not strong enough for a full visual confirmation.",
+            reason="The frame looks brighter and the user declared the light adjustment, but the image is not strong enough for full confirmation.",
             last_verified_item=task.name,
-            notes="Illumination task relied on partial brightness evidence plus user declaration.",
+            notes="Illumination verification used the current frame plus user declaration.",
         )
 
     return _decision(
         status="unconfirmed",
         confidence_band="low",
-        reason="The frame remained too dim for a full illumination confirmation.",
+        reason="The current frame does not provide enough clear evidence to confirm the illumination step.",
         block_reason="The verification capture is still too dark to confirm the illumination step honestly.",
-        notes="Illumination tasks require measurable brightness improvement, not a guessed confirmation.",
+        notes="Illumination verification now stays current-frame only.",
     )
+
 def _evaluate_stabilization_task(
     task: TaskDefinition,
     context: VerificationContext,
@@ -307,57 +260,46 @@ def _evaluate_anchor_task(
         or context.capability_profile.environment.tabletop_ready
     )
     strong_visual = (
-        quality.lighting >= 0.5
+        quality.lighting >= 0.45
         and quality.blur <= 0.5
-        and quality.motion_stability >= 0.6
+        and quality.motion_stability >= 0.5
     )
-    change_strength = _baseline_change_strength(context)
 
     if flat_surface_blocked or (task.id == "T5" and paper_blocked):
         return _decision(
             status="unconfirmed",
             confidence_band="low",
             reason="The anchor task conflicts with the declared environment constraints.",
-            block_reason="The caller has already declared that the required anchor materials are unavailable.",
-            notes="Anchor verification used capability-profile constraints to avoid bluffing object availability.",
+            block_reason="The required surface or paper is unavailable for this task.",
+            notes="Anchor verification respected explicit environment constraints.",
         )
 
-    if strong_visual and tabletop_support and change_strength is not None and change_strength >= 0.06:
+    if strong_visual and tabletop_support:
         return _decision(
             status="confirmed",
             confidence_band="high",
-            reason="The surface view changed enough from the baseline to confirm the anchor step.",
+            reason="The anchor surface is clear enough to confirm the task from the current frame.",
             last_verified_item=task.name,
-            notes="Anchor verification now requires meaningful before/after surface change.",
+            notes="Anchor verification used the current frame only and did not depend on a stored baseline image.",
         )
 
-    if change_strength is not None and change_strength < 0.03:
-        return _decision(
-            status="unconfirmed",
-            confidence_band="low",
-            reason="I do not see enough change from the baseline surface view to confirm the anchor step.",
-            block_reason="The current surface looks too similar to the baseline to verify this task honestly.",
-            notes="Anchor tasks now reject unchanged tabletop evidence.",
-        )
-
-    if declaration and (strong_visual or tabletop_support) and (
-        change_strength is None or change_strength >= 0.03
-    ):
+    if declaration and tabletop_support:
         return _decision(
             status="user_confirmed_only",
             confidence_band="medium",
-            reason="The anchor step had some supporting visual evidence, but not enough for full confirmation.",
+            reason="The anchor setup is partially visible, but not strong enough for full visual confirmation.",
             last_verified_item=task.name,
-            notes="Anchor task relied on partial visual evidence plus a user declaration.",
+            notes="Anchor task used partial visual support plus user declaration.",
         )
 
     return _decision(
         status="unconfirmed",
         confidence_band="low",
-        reason="The anchor step could not be verified from the captured window.",
+        reason="The anchor task could not be confirmed from the current verification capture.",
         block_reason=_visual_block_reason(context),
-        notes="Anchor tasks require a readable tabletop view; unresolved framing stays unconfirmed.",
+        notes="Anchor task now judges only the current frame instead of comparing against a baseline.",
     )
+
 def _evaluate_soft_visual_task(
     task: TaskDefinition,
     context: VerificationContext,
@@ -377,35 +319,32 @@ def _evaluate_soft_visual_task(
         and quality.blur <= 0.62
         and quality.motion_stability >= 0.45
     )
-    change_strength = _baseline_change_strength(context)
 
-    if strong_visual and change_strength is not None and change_strength >= 0.06:
+    if strong_visual and declaration:
         return _decision(
             status="confirmed",
             confidence_band="medium",
-            reason="The relevant area changed enough from the baseline to confirm the task.",
+            reason="The current frame clearly shows the relevant object or action for this task.",
             last_verified_item=task.name,
-            notes="Soft-visual verification now requires readable before/after evidence for full confirmation.",
+            notes="Soft-visual verification now judges only the current frame.",
         )
 
-    if strong_visual and change_strength is not None and change_strength < 0.03:
+    if strong_visual:
         return _decision(
-            status="unconfirmed",
-            confidence_band="low",
-            reason="I do not see enough change from the baseline view to confirm this task.",
-            block_reason="The current frame looks too similar to the baseline to verify the requested change honestly.",
-            notes="Soft-visual tasks now reject unchanged before/after evidence.",
+            status="user_confirmed_only",
+            confidence_band="medium",
+            reason="The frame is readable, but the completion evidence is not obvious enough for full confirmation.",
+            last_verified_item=task.name,
+            notes="Soft-visual verification avoided before/after comparison and stayed conservative.",
         )
 
-    if (moderate_visual or declaration) and (
-        change_strength is None or change_strength >= 0.03
-    ):
+    if moderate_visual or declaration:
         return _decision(
             status="user_confirmed_only",
             confidence_band="medium" if declaration else "low",
             reason="The task had partial support, but not enough for a full visual confirmation.",
             last_verified_item=task.name if declaration else None,
-            notes="Soft-visual tasks fall back to user-confirmed-only when confidence is limited.",
+            notes="Soft-visual verification now uses only current-frame evidence and declarations.",
         )
 
     return _decision(
@@ -413,7 +352,7 @@ def _evaluate_soft_visual_task(
         confidence_band="low",
         reason="The medium-confidence task could not be verified from the current evidence.",
         block_reason=_visual_block_reason(context),
-        notes="Soft-visual tasks stay unconfirmed when neither frames nor declaration are strong enough.",
+        notes="Soft-visual tasks stay unconfirmed when neither the frame nor declaration is strong enough.",
     )
 def _evaluate_transcript_task(
     task: TaskDefinition,
@@ -550,5 +489,7 @@ def _word_count(text: str) -> int:
 
 def _normalize_text(text: str) -> str:
     return " ".join(_WORD_RE.findall(text.lower().replace("\u2019", "'")))
+
+
 
 

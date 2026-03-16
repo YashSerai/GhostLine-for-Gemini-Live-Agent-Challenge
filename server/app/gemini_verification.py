@@ -43,14 +43,12 @@ _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
         "GATE 2 — OBJECT PRESENCE: Do you see a door in this frame? Look for "
         "a door, door frame, or doorway. If you cannot see ANY door: respond "
         "'I do not see a door. Point the camera at the door.' STOP.\n"
-        "GATE 3 — COMPLETION EVIDENCE: Compare this frame to your BASELINE "
-        "memory. In the baseline the door was OPEN — you should have seen a "
-        "gap, light from the other side, or an open doorway. NOW, is the door "
-        "CLOSED? Look for: the gap is gone, door flush against the frame, no "
-        "light leaking through. If the door still shows a gap or open space: "
-        "'The door still appears open. Close it fully.' "
-        "ONLY say 'CONFIRMED' if the door is OBVIOUSLY, VISIBLY closed and "
-        "flush with its frame."
+        "GATE 3 — COMPLETION EVIDENCE: Based only on the CURRENT frame, is the "
+        "door clearly CLOSED? Look for: the door is flush with the frame, there "
+        "is no obvious open gap, and the boundary looks sealed. If the door "
+        "still appears open or partly ajar: 'The door still appears open. Close "
+        "it fully.' ONLY say 'CONFIRMED' if the door is OBVIOUSLY, VISIBLY "
+        "closed in this frame."
     ),
     "T3": (
         "VERIFICATION — 3-GATE CHECK for 'Increase Illumination':\n"
@@ -58,9 +56,9 @@ _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
         "'I cannot verify — frame is not readable.'\n"
         "GATE 2: Do you see a light source or light switch? If NOT visible: "
         "'I do not see a light source. Show me where the light is.'\n"
-        "GATE 3: Is the room VISIBLY brighter than baseline? Look for: light on, "
-        "increased exposure, fewer shadows. If same darkness: "
-        "'Room still looks dim. Turn on a light.' Only confirm if OBVIOUSLY brighter."
+        "GATE 3: Based only on the CURRENT frame, does the room now look clearly lit and readable? "
+        "Look for: a visible light source on, brighter surfaces, and fewer deep shadows. "
+        "If it still looks dim: 'Room still looks dim. Turn on a light.' Only confirm if the room is obviously well lit in this frame."
     ),
     "T4": (
         "VERIFICATION — 3-GATE CHECK for 'Stabilize Camera':\n"
@@ -68,8 +66,8 @@ _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
         "'The image is still unstable. Hold the camera steady.'\n"
         "GATE 2: Can you see a clear room scene? If NOT: "
         "'I cannot see the room clearly. Steady the camera.'\n"
-        "GATE 3: Is the image NOTICEABLY steadier than baseline? "
-        "Only confirm if sharp and stable."
+        "GATE 3: Based only on the CURRENT frame, is the image sharp and steady enough to trust? "
+        "Only confirm if it looks clearly stable right now."
     ),
     "T5": (
         "VERIFICATION — 3-GATE CHECK for 'Place Paper on Surface':\n"
@@ -79,23 +77,20 @@ _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
         "GATE 2 — OBJECT PRESENCE: Do you see a flat surface (table, desk, "
         "floor)? If NOT visible: respond 'I do not see a surface. Show me "
         "the surface.' STOP.\n"
-        "GATE 3 — COMPLETION EVIDENCE: Compare this frame to your BASELINE "
-        "memory. In the baseline the surface was EMPTY. NOW, look for a "
-        "white or light-colored rectangular shape (paper/sheet) ON the "
-        "surface. It should be flat, roughly A4/letter size. If the surface "
-        "still looks empty with no paper: 'I see no paper on that surface. "
-        "Place it and show me.' "
-        "ONLY say 'CONFIRMED' if you can CLEARLY see paper sitting on the "
-        "surface that was not there before."
+        "GATE 3 — COMPLETION EVIDENCE: Based only on the CURRENT frame, do you "
+        "see a sheet of paper resting on the surface? Look for a flat white or "
+        "light-colored rectangular sheet. If the surface still looks empty: "
+        "'I see no paper on that surface. Place it and show me.' ONLY say "
+        "'CONFIRMED' if the paper is clearly visible in this frame."
     ),
     "T6": (
         "VERIFICATION — 3-GATE CHECK for 'Clear Small Surface':\n"
         "GATE 1: Is this frame clear enough? If dark/blurry: "
         "'I cannot verify — frame is not readable.'\n"
         "GATE 2: Do you see the surface area? If NOT: 'Show me the surface.'\n"
-        "GATE 3: Is the surface VISIBLY cleared compared to baseline? "
-        "If still cluttered: 'Surface still has items. Not cleared.' "
-        "Only confirm if OBVIOUSLY clear."
+        "GATE 3: Based only on the CURRENT frame, does the surface now look clearly cleared? "
+        "If it still looks cluttered: 'Surface still has items. Not cleared.' "
+        "Only confirm if the visible surface is obviously clear in this frame."
     ),
     "T7": (
         "VERIFICATION CHECK: The caller was asked to SPEAK A CONTAINMENT PHRASE. "
@@ -108,9 +103,9 @@ _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
         "GATE 1: Is this frame clear enough? If dark/blurry: "
         "'I cannot verify — frame is not readable.'\n"
         "GATE 2: Do you see paper or card? If NOT: 'Show me the paper.'\n"
-        "GATE 3: Does the paper NOW show a drawn mark that was NOT there "
-        "in baseline? If still blank: 'I see no mark. Draw one and show me.' "
-        "Only confirm if mark is OBVIOUSLY visible."
+        "GATE 3: Based only on the CURRENT frame, does the paper clearly show a drawn mark? "
+        "If it still looks blank: 'I see no mark. Draw one and show me.' "
+        "Only confirm if the mark is obviously visible in this frame."
     ),
     "T9": (
         "VERIFICATION — 3-GATE CHECK for 'Show Reflective Surface':\n"
@@ -127,9 +122,8 @@ _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
         "'I cannot verify — frame is not readable.'\n"
         "GATE 2: Do you see the caller's hands or the area in frame? "
         "If NOT: 'I cannot see the area. Show me.'\n"
-        "GATE 3: Is a brightly colored object NOW held in frame where "
-        "there was NOT one in baseline? If nothing new: "
-        "'I do not see a vivid object. Hold it up.' Only confirm if OBVIOUS."
+        "GATE 3: Is a brightly colored object clearly visible in frame right now? "
+        "If not: 'I do not see a vivid object. Hold it up.' Only confirm if the object is obvious in this frame."
     ),
     "T11": (
         "VERIFICATION — 3-GATE CHECK for 'Water Sink Release':\n"
@@ -137,9 +131,8 @@ _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
         "'I cannot verify — frame is not readable.'\n"
         "GATE 2: Do you see a sink or water source? "
         "If NOT: 'I do not see a water source. Show me.'\n"
-        "GATE 3: Is water VISIBLY running or being poured compared to "
-        "baseline? If dry: 'I see no water flow. Show me.' "
-        "Only confirm if water motion is OBVIOUS."
+        "GATE 3: Based only on the CURRENT frame, is water clearly running or being poured? "
+        "If dry: 'I see no water flow. Show me.' Only confirm if water motion is obvious in this frame."
     ),
     "T12": (
         "VERIFICATION — 3-GATE CHECK for 'Salt Line':\n"
@@ -147,9 +140,8 @@ _TASK_VERIFICATION_PROMPTS: dict[str, str] = {
         "'I cannot verify — frame is not readable.'\n"
         "GATE 2: Do you see the floor near the boundary? "
         "If NOT: 'Show me the floor near the boundary.'\n"
-        "GATE 3: Is salt VISIBLY on the floor that was NOT there in baseline? "
-        "If floor looks the same: 'I see no salt. Show me.' "
-        "Only confirm if salt is OBVIOUSLY visible."
+        "GATE 3: Based only on the CURRENT frame, is salt clearly visible on the floor near the boundary? "
+        "If not: 'I see no salt. Show me.' Only confirm if the salt is obviously visible in this frame."
     ),
 }
 
@@ -415,40 +407,15 @@ class GeminiVisionVerificationEngine:
         if not self._is_usable_frame_bytes(current_image_bytes, context_label="verification"):
             return await self._fallback_or_default(context)
 
-        baseline_frame = context.baseline_frame
-        baseline_image_bytes: bytes | None = None
-        baseline_mime_type = "image/jpeg"
-        if (
-            baseline_frame is not None
-            and isinstance(baseline_frame.data, str)
-            and baseline_frame.data.strip()
-        ):
-            decoded_baseline = self._decode_frame_bytes(baseline_frame.data)
-            if decoded_baseline is not None and self._is_usable_frame_bytes(
-                decoded_baseline,
-                context_label="verification_baseline",
-            ):
-                baseline_image_bytes = decoded_baseline
-                baseline_mime_type = baseline_frame.mime_type
-
         prompt = self._build_prompt(
             task_id,
             task_name,
             "verification",
-            has_baseline=baseline_image_bytes is not None,
+            has_baseline=False,
         )
 
         self._pending_analysis_future = asyncio.get_running_loop().create_future()
         try:
-            if baseline_image_bytes is not None:
-                baseline_sent = await self._send_image_bytes(
-                    baseline_image_bytes,
-                    mime_type=baseline_mime_type,
-                    context_label="verification_baseline",
-                )
-                if not baseline_sent:
-                    baseline_image_bytes = None
-
             current_sent = await self._send_image_bytes(
                 current_image_bytes,
                 mime_type=current_mime_type,
@@ -465,7 +432,7 @@ class GeminiVisionVerificationEngine:
                 session_id=self.session_id,
                 task_id=task_id,
                 task_name=task_name,
-                has_baseline=baseline_image_bytes is not None,
+                has_baseline=False,
                 verification_frame_count=len(verification_frames),
             )
 
@@ -522,18 +489,13 @@ class GeminiVisionVerificationEngine:
             for t in TASK_LIBRARY:
                 if t.id == task_id and t.completion_check:
                     completion_check = (
-                        f" BEFORE/AFTER CHECK: {t.completion_check} "
-                        "If the relevant object or area is not visible in the current frame, "
-                        "say that clearly instead of guessing."
+                        f" CURRENT-FRAME CHECK: {t.completion_check} "
+                        "Judge only what is visible in the current frame. If the relevant object or area is not visible, say that clearly instead of guessing."
                     )
                     break
 
         comparison_instructions = (
-            " Two images are being sent in order. IMAGE 1 is the BASELINE from before the task. "
-            "IMAGE 2 is the CURRENT verification frame. Compare them directly. "
-            "If IMAGE 2 does not clearly show the relevant area, say exactly what you cannot see."
-            if has_baseline
-            else " You are only receiving the CURRENT verification frame. Do not assume prior state you cannot see."
+            " You are only receiving the CURRENT verification frame. Do not assume prior state you cannot see."
         )
 
         task_reference = (
@@ -544,13 +506,15 @@ class GeminiVisionVerificationEngine:
 
         return (
             f"VERIFICATION_ANALYSIS: {base_prompt}{completion_check}{comparison_instructions}{task_reference} "
+            "Ignore any mention of baseline, before/after memory, or prior state. Judge only the current frame against the task goal. "
             "Based on what you can actually see, state whether the task appears completed. "
             "Start your spoken response with exactly one of these leads: "
             "'CONFIRMED.' or 'NOT CONFIRMED.' or 'CANNOT VERIFY.' Then give one "
             "short concrete reason grounded in the visible evidence. "
-            "Be honest. If the frame is too dark, blurry, out of frame, or unchanged from the baseline, say so clearly. "
+            "Be honest. If the frame is too dark, blurry, or out of frame, say so clearly. "
             "Do not bluff."
         )
+
     async def _await_analysis_transcript(self) -> str:
         pending = self._pending_analysis_future
         if pending is None:
@@ -795,6 +759,10 @@ AI_RECOVERY_DIRECTIVE_TEMPLATE = (
     "to fix the issue. Be concise and procedural. Do not repeat the task "
     "description — tell them exactly what to adjust."
 )
+
+
+
+
 
 
 

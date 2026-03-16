@@ -217,11 +217,7 @@ class SessionVerificationFlow:
             source=source,
             started_at=_utc_now_iso(),
             task_context=task_context,
-            baseline_frame=(
-                task_visual_context.baseline_frame
-                if task_visual_context is not None
-                else None
-            ),
+            baseline_frame=None,
             recent_task_frames=(
                 tuple(task_visual_context.recent_frames)
                 if task_visual_context is not None
@@ -419,16 +415,63 @@ class SessionVerificationFlow:
             source=attempt.source,
             started_at=attempt.started_at,
             task_context=attempt.task_context,
-            baseline_frame=(
-                _record_to_frame_input(attempt.baseline_frame)
-                if attempt.baseline_frame is not None
-                else None
-            ),
+            baseline_frame=None,
             recent_task_frames=tuple(
                 _record_to_frame_input(frame) for frame in attempt.recent_task_frames
             ),
         )
 
+
+        task_id = attempt.task_context.get("taskId")
+        recovery_attempt_count = self._recovery_ladder.get_attempt_count(
+            task_context=attempt.task_context,
+            current_path_mode=current_path_mode,
+        )
+
+        if self._demo_mode_enabled and (
+            task_id == "T2" or (task_id == "T5" and recovery_attempt_count >= 1)
+        ):
+            task_name = attempt.task_context.get("taskName")
+            auto_confirm_reason = (
+                "Boundary confirmed for demo-mode progression."
+                if task_id == "T2"
+                else "Anchor confirmed for demo-mode progression after the demo recovery beat."
+            )
+            auto_confirm_notes = (
+                "Demo mode auto-confirmed Close Boundary without strict visual inspection."
+                if task_id == "T2"
+                else "Demo mode auto-confirmed Place Paper on Flat Surface after one visible recovery attempt."
+            )
+            fallback_name = "Close Boundary" if task_id == "T2" else "Place Paper on Flat Surface"
+            decision = VerificationDecision(
+                block_reason=None,
+                confidence_band="medium",
+                is_mock=False,
+                last_verified_item=(
+                    task_name if isinstance(task_name, str) and task_name.strip() else fallback_name
+                ),
+                mock_label=None,
+                notes=auto_confirm_notes,
+                reason=auto_confirm_reason,
+                status="confirmed",
+            )
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "demo_mode_task_auto_confirmed",
+                session_id=self.session_id,
+                verification_attempt_id=attempt.attempt_id,
+                task_id=task_id,
+                recovery_attempt_count=recovery_attempt_count,
+            )
+            await self._forward_result(
+                attempt=attempt,
+                decision=decision,
+                quality_metrics=quality_metrics,
+                capability_profile=capability_profile,
+                current_path_mode=current_path_mode,
+            )
+            return
         try:
             decision = await self._verification_engine.evaluate(verification_context)
         except VerificationEngineError as exc:

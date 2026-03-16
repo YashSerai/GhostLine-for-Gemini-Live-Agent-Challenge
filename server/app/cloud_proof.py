@@ -9,8 +9,6 @@ from typing import Any
 _EXPECTED_LOG_EVENTS = (
     "session_started",
     "gemini_live_session_created",
-    "firestore_session_created",
-    "firestore_session_persisted",
     "case_report_generated",
 )
 
@@ -22,7 +20,6 @@ class CloudProofSessionRecord:
     currentStep: str | None = None
     taskId: str | None = None
     verificationStatus: str | None = None
-    firestoreDocumentPath: str | None = None
     logQueryHint: str | None = None
     startedAt: str | None = None
     updatedAt: str | None = None
@@ -39,11 +36,9 @@ class CloudProofSessionRegistry:
         *,
         service_name: str | None,
         project: str | None,
-        firestore_collection: str | None,
     ) -> None:
         self._service_name = service_name
         self._project = project
-        self._firestore_collection = firestore_collection
         self._sessions: dict[str, CloudProofSessionRecord] = {}
         self._last_session_id: str | None = None
 
@@ -55,7 +50,6 @@ class CloudProofSessionRegistry:
                 sessionId=session_id,
                 startedAt=now,
                 updatedAt=now,
-                firestoreDocumentPath=self._build_document_path(session_id),
                 logQueryHint=self._build_log_query_hint(session_id),
             )
             self._sessions[session_id] = record
@@ -74,7 +68,6 @@ class CloudProofSessionRegistry:
         if record is None:
             record = CloudProofSessionRecord(
                 sessionId=session_id,
-                firestoreDocumentPath=self._build_document_path(session_id),
                 logQueryHint=self._build_log_query_hint(session_id),
                 startedAt=_utc_now_iso(),
                 updatedAt=_utc_now_iso(),
@@ -92,7 +85,6 @@ class CloudProofSessionRegistry:
         return {
             "serviceName": self._service_name,
             "project": self._project,
-            "firestoreCollection": self._firestore_collection,
             "activeSession": asdict(active_session) if active_session is not None else None,
             "lastSession": asdict(last_session) if last_session is not None else None,
             "expectedLogEvents": list(_EXPECTED_LOG_EVENTS),
@@ -104,11 +96,6 @@ class CloudProofSessionRegistry:
             return None
         active_records.sort(key=lambda record: record.updatedAt or "", reverse=True)
         return active_records[0]
-
-    def _build_document_path(self, session_id: str) -> str | None:
-        if not self._firestore_collection:
-            return None
-        return f"{self._firestore_collection}/{session_id}"
 
     def _build_log_query_hint(self, session_id: str) -> str:
         return f'jsonPayload.event="session_started" AND jsonPayload.session_id="{session_id}"'

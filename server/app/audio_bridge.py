@@ -116,6 +116,7 @@ StartVerificationCallback = Callable[[dict[str, Any]], Awaitable[None]]
 HandleSwapRequestCallback = Callable[[dict[str, Any]], Awaitable[None]]
 RecordUserTranscriptCallback = Callable[[str, bool], None]
 UpdateDemoBargeInCallback = Callable[[dict[str, Any]], Awaitable[None]]
+RecordHiddenOperatorTranscriptCallback = Callable[[str, str | None, bool], None]
 ROOM_SCAN_READY_RESPONSE = "ROOM_SCAN_READY"
 ROOM_SCAN_RETRY_PATTERN = re.compile(r"ROOM_SCAN_RETRY\s*:\s*([a-z_]+)", re.IGNORECASE)
 
@@ -209,6 +210,7 @@ class SessionAudioBridge:
         handle_swap_request: HandleSwapRequestCallback | None = None,
         record_user_transcript: RecordUserTranscriptCallback | None = None,
         update_demo_barge_in: UpdateDemoBargeInCallback | None = None,
+        record_hidden_operator_transcript: RecordHiddenOperatorTranscriptCallback | None = None,
     ) -> None:
         self.session_id = session_id
         self._gemini_session_manager = gemini_session_manager
@@ -217,6 +219,7 @@ class SessionAudioBridge:
         self._handle_swap_request = handle_swap_request
         self._record_user_transcript = record_user_transcript
         self._update_demo_barge_in = update_demo_barge_in
+        self._record_hidden_operator_transcript = record_hidden_operator_transcript
         self._gemini_session: GeminiLiveSession | None = None
         self._receive_task: asyncio.Task[None] | None = None
         self._mic_active = False
@@ -239,6 +242,9 @@ class SessionAudioBridge:
         self._pending_operator_guidance: deque[tuple[str, str, bool]] = deque()
         self._operator_turn_idle_event = asyncio.Event()
         self._operator_turn_idle_event.set()
+        self._current_guidance_source: str | None = None
+        self._session_state_name: str | None = None
+        self._camera_ready_for_model = False
         self._room_scan_eval_pending = False
         self._room_scan_eval_buffer = ""
         self._room_scan_status: str | None = None
@@ -266,6 +272,12 @@ class SessionAudioBridge:
         self._room_scan_status = None
         self._room_scan_reason = None
         self._room_scan_eval_done_event.set()
+
+    def _is_hidden_verification_output(self) -> bool:
+        return (
+            self._session_state_name == "verifying"
+            and self._current_guidance_source is None
+        )
 
     async def request_room_scan_readiness_check(self) -> None:
         session = await self._ensure_session()
@@ -309,6 +321,7 @@ class SessionAudioBridge:
         self._discard_operator_audio = True
         self._pending_epoch_advance = True
         self._operator_turn_active = False
+        self._current_guidance_source = None
         self._pending_operator_guidance.clear()
         self._operator_turn_idle_event.set()
 
@@ -446,14 +459,9 @@ class SessionAudioBridge:
         *,
         task_id: str | None = None,
     ) -> None:
-        """Send the task-vision context directive when a new task starts.
-
-        Uses per-task verification profiles from TASK_LIBRARY for cinematic
-        baseline prompts and horror-flavored lore.
-        """
+        """Send the task-vision context directive when a new task starts."""
         from .task_library import TASK_LIBRARY
 
-        # Look up the per-task verification profile
         task_def = None
         if task_id is not None:
             for t in TASK_LIBRARY:
@@ -461,47 +469,20 @@ class SessionAudioBridge:
                     task_def = t
                     break
 
-        # Build baseline instructions if this task has visual verification
-        baseline_section = ""
-        if task_def and task_def.baseline_prompt:
-            baseline_section = (
-                f"\n\nBASELINE PHASE - SAY THIS FIRST (in your own urgent voice): "
-                f'"{task_def.baseline_prompt}" '
-                f"\nThen, while looking at the feed, deliver this lore: "
-                f'"{task_def.baseline_lore}" '
-                f"\nThe FIRST few frames you see after this are your BASELINE. "
-                f"Use them as your working reference for the task. If the relevant "
-                f"area leaves frame later, say so clearly and ask the caller to show it again."
-            )
-
-        # Per-task baseline object validation using target_object
-        if task_def and task_def.target_object:
-            baseline_section += (
-                f"\n\nBASELINE OBJECT CHECK: Before proceeding, confirm you can "
-                f"ACTUALLY see '{task_def.target_object}' in the frame. If you "
-                f"CANNOT see it, say: 'I do not see {task_def.target_object} in "
-                f"the frame. Show me {task_def.target_object} before we continue.' "
-                f"Do NOT proceed with the task until the required object is visible. "
-                f"Do NOT assume it is there - you must SEE it."
-            )
-
         completion_section = ""
         if task_def and task_def.completion_check:
             completion_section = (
-                f"\n\nVERIFICATION - 3-GATE CHECK (when the caller says 'ready to verify'):\n"
+                f"\n\nVERIFICATION COACHING (when the caller says 'ready to verify'):\n"
                 f"GATE 1 - FRAME QUALITY: Is this frame clear enough to analyze? "
-                f"If dark, blurry, shaky, or obstructed: 'I cannot verify - the "
-                f"frame is not readable. Show me clearly.'\n"
+                "If dark, blurry, shaky, or obstructed: 'I cannot verify - the frame is not readable. Show me clearly.'\n"
                 f"GATE 2 - OBJECT PRESENCE: Can you see '{task_def.target_object or 'the required item'}'? "
                 f"If not visible: 'I do not see {task_def.target_object or 'what I need'}. Show me.'\n"
-                f"GATE 3 - COMPLETION EVIDENCE: COMPARE what you see NOW to your "
-                f"BASELINE memory. {task_def.completion_check} "
-                f"If you see NO meaningful change from baseline, say: "
-                f"'I see no change from when we started. That does not look complete. "
-                f"Show me.' ""If the change looks obvious, do NOT announce completion or move to "
-                "the next task. Instead say: 'That looks ready for verification. Hold "
-                "still and say Ready to Verify.' Only the formal Ready-to-Verify path "
-                "can confirm completion and advance the session."
+                "GATE 3 - COMPLETION EVIDENCE: Judge ONLY the current frame against the task goal. "
+                f"{task_def.completion_check} "
+                "If the completion evidence is not obvious in the current frame, say that clearly instead of guessing. "
+                "If the change looks obvious, do NOT announce completion or move to the next task. "
+                "Instead say: 'That looks ready for verification. Hold still and say Ready to Verify.' "
+                "Only the formal Ready-to-Verify path can confirm completion and advance the session."
             )
 
         await self.send_context_directive(
@@ -509,7 +490,6 @@ class SessionAudioBridge:
             f"Action: {task_description}. "
             "You are receiving continuous camera frames. "
             "You are the live visual coach, not the authoritative progression engine. "
-            f"{baseline_section}"
             f"{completion_section}"
             "\n\nANTI-HALLUCINATION MONITORING: "
             "If the frame is dark, obstructed, or you cannot make out the scene, "
@@ -525,14 +505,10 @@ class SessionAudioBridge:
             "- Never say 'task complete', 'confirmed', or 'moving on' from continuous task vision alone. "
             "- If you see progress: One short acknowledgment, then silence. "
             "- ONLY describe what you ACTUALLY see. NEVER assume or invent objects. "
-            "- If the task needs an object you do NOT see, say so: "
-            "'I do not see that in frame.' "
-            "- Do NOT narrate every frame - only speak when something changes "
-            "or the caller needs direction. "
+            "- If the task needs an object you do NOT see, say so: 'I do not see that in frame.' "
+            "- Do NOT narrate every frame - only speak when something changes or the caller needs direction. "
             "- Finish your current thought before reacting to new frames. "
-            "\nPACING: Speak FAST. Urgent. Clipped sentences. You are an operator "
-            "on a live containment call - there is something in that room with them "
-            "and you need to move quickly. No leisurely descriptions. Punch it."
+            "\nPACING: Speak FAST. Urgent. Clipped sentences. You are an operator on a live containment call - there is something in that room with them and you need to move quickly. No leisurely descriptions. Punch it."
         )
 
     async def send_verification_frame(
@@ -721,6 +697,7 @@ class SessionAudioBridge:
         self._demo_barge_in_restatement_pending = False
         self._demo_barge_in_completed = False
         self._operator_turn_active = False
+        self._current_guidance_source = None
         self._pending_operator_guidance.clear()
         self._operator_turn_idle_event.set()
         self.reset_room_scan_readiness()
@@ -770,6 +747,7 @@ class SessionAudioBridge:
         self._discard_operator_audio = False
         self._pending_epoch_advance = False
         self._operator_turn_active = False
+        self._current_guidance_source = None
         self._pending_operator_guidance.clear()
         self._operator_turn_idle_event.set()
         self.reset_room_scan_readiness()
@@ -819,6 +797,7 @@ class SessionAudioBridge:
             self._discard_operator_audio = False
             self._pending_epoch_advance = False
         self._operator_turn_active = True
+        self._current_guidance_source = source
         self._operator_turn_idle_event.clear()
         await session.send_text_input(f"OPERATOR_DIRECTIVE: {text}")
         log_event(
@@ -876,7 +855,6 @@ class SessionAudioBridge:
             )
             self._drained_event_count = 0
             self._operator_audio_sequence = 0
-            self._operator_playback_epoch = 0
             self._discard_operator_audio = False
             self._pending_epoch_advance = False
 
@@ -966,6 +944,16 @@ class SessionAudioBridge:
                 return
 
             self._operator_turn_active = True
+            if self._is_hidden_verification_output():
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "verification_analysis_audio_suppressed",
+                    session_id=self.session_id,
+                    byte_count=len(raw_audio),
+                )
+                return
+
 
             if self._room_scan_eval_pending:
                 log_event(
@@ -1018,30 +1006,43 @@ class SessionAudioBridge:
 
         if event.event_type == "interruption":
             interrupted = bool(event.payload.get("interrupted", False))
+            duplicate_local_flush = interrupted and self._pending_epoch_advance
             if interrupted:
                 self._discard_operator_audio = True
                 self._pending_epoch_advance = True
                 self._operator_turn_active = False
+                self._current_guidance_source = None
                 self._operator_turn_idle_event.set()
 
-            await self._forward_envelope(
-                {
-                    "type": "operator_interruption",
-                    "sessionId": self.session_id,
-                    "payload": {
-                        **event.payload,
-                        "playbackEpoch": self._operator_playback_epoch,
-                    },
-                }
-            )
-            log_event(
-                LOGGER,
-                logging.INFO,
-                "operator_audio_interruption_forwarded",
-                session_id=self.session_id,
-                interrupted=interrupted,
-                playback_epoch=self._operator_playback_epoch,
-            )
+            if duplicate_local_flush:
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "operator_audio_interruption_suppressed",
+                    session_id=self.session_id,
+                    interrupted=interrupted,
+                    playback_epoch=self._operator_playback_epoch,
+                    reason="local_interrupt_already_flushed_epoch",
+                )
+            else:
+                await self._forward_envelope(
+                    {
+                        "type": "operator_interruption",
+                        "sessionId": self.session_id,
+                        "payload": {
+                            **event.payload,
+                            "playbackEpoch": self._operator_playback_epoch,
+                        },
+                    }
+                )
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "operator_audio_interruption_forwarded",
+                    session_id=self.session_id,
+                    interrupted=interrupted,
+                    playback_epoch=self._operator_playback_epoch,
+                )
             log_event(
                 LOGGER,
                 logging.INFO,
@@ -1074,10 +1075,11 @@ class SessionAudioBridge:
                     session_id=self.session_id,
                     reason="target_line_completed_without_interrupt",
                 )
-            if completed and self._room_scan_eval_pending:
+            if completed and self._room_scan_eval_pending and self._room_scan_eval_buffer.strip():
                 await self._finalize_room_scan_readiness_check(is_final=True)
             if completed:
                 self._operator_turn_active = False
+                self._current_guidance_source = None
             if self._pending_epoch_advance and completed:
                 await self._release_operator_audio_flush(released_by=event.event_type)
             if completed:
@@ -1093,6 +1095,23 @@ class SessionAudioBridge:
                     else "output"
                 )
                 is_final = bool(event.payload.get("finished", False))
+                if direction == "output" and self._is_hidden_verification_output():
+                    if self._record_hidden_operator_transcript is not None:
+                        self._record_hidden_operator_transcript(
+                            text.strip(),
+                            source="gemini_live",
+                            is_final=is_final,
+                        )
+                    log_event(
+                        LOGGER,
+                        logging.INFO,
+                        "verification_analysis_transcript_suppressed",
+                        session_id=self.session_id,
+                        finished=is_final,
+                        text_preview=text[:80],
+                    )
+                    return
+
                 if direction == "output":
                     self._operator_turn_active = True
                 if direction == "output" and self._room_scan_eval_pending:
@@ -1374,6 +1393,15 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
+
+
+
+
+
+
+
+
+
 
 
 

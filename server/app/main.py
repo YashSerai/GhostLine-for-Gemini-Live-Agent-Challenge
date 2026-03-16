@@ -10,7 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .cloud_proof import CloudProofSessionRegistry
 from .config import Settings, get_settings
-from .firestore_session_store import FirestoreSessionStore
 from .flavor_text_state_model import FlavorTextStateModel
 from .gemini_live import GeminiLiveSessionManager
 from .incident_classification import IncidentClassificationStore
@@ -33,16 +32,11 @@ async def lifespan(app: FastAPI):
     )
     app.state.cloud_proof_registry = CloudProofSessionRegistry(
         service_name=os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_SERVICE") or None,
-        project=settings.gemini_live.project or settings.firestore.project or None,
-        firestore_collection=settings.firestore.collection,
+        project=settings.gemini_live.project or None,
     )
     app.state.incident_classification_store = IncidentClassificationStore()
     app.state.flavor_text_state_model = FlavorTextStateModel()
-    app.state.firestore_session_store = FirestoreSessionStore(
-        settings.firestore,
-        app_name=settings.app_name,
-        app_env=settings.app_env,
-    )
+    app.state.firestore_session_store = None
     app.state.verification_engine = (
         MockVerificationEngine(settings.mock_verification)
         if settings.mock_verification.enabled
@@ -73,21 +67,16 @@ async def lifespan(app: FastAPI):
     )
     log_event(
         LOGGER,
-        logging.INFO if settings.firestore.is_configured else logging.WARNING,
-        "firestore_session_store_ready",
-        configured=settings.firestore.is_configured,
-        project=settings.firestore.project or None,
-        database=settings.firestore.database,
-        collection=settings.firestore.collection,
-        credentials_configured=bool(settings.firestore.credentials_path),
+        logging.INFO,
+        "firestore_runtime_disabled",
+        reason="session persistence removed for demo reliability",
     )
     log_event(
         LOGGER,
         logging.INFO,
         "cloud_proof_registry_ready",
         service_name=os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_SERVICE") or None,
-        project=settings.gemini_live.project or settings.firestore.project or None,
-        firestore_collection=settings.firestore.collection,
+        project=settings.gemini_live.project or None,
         proof_endpoint="/ops/proof/active-session",
     )
     log_event(
@@ -142,14 +131,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    firestore_session_store: FirestoreSessionStore | None = getattr(
-        app.state,
-        "firestore_session_store",
-        None,
-    )
-    if firestore_session_store is not None:
-        await firestore_session_store.close()
-
     gemini_live_session_manager: GeminiLiveSessionManager | None = getattr(
         app.state,
         "gemini_live_session_manager",
@@ -175,8 +156,7 @@ def create_app() -> FastAPI:
             "Ghostline backend with health endpoints, local CORS, a session "
             "WebSocket gateway, environment-loaded Gemini Live integration, a "
             "bounded Ready-to-Verify flow, an isolated mock verifier, a "
-            "real task-aware verification engine, Firestore-backed "
-            "session persistence, and cloud-proof operational support."
+            "real task-aware verification engine, and cloud-proof operational support."
         ),
         version="0.1.0",
         lifespan=lifespan,
@@ -215,20 +195,10 @@ def create_app() -> FastAPI:
             "verification_engine",
             None,
         )
-        firestore_session_store: FirestoreSessionStore | None = getattr(
-            app.state,
-            "firestore_session_store",
-            None,
-        )
         verification_engine_kind = (
             "mock"
             if ready_settings.mock_verification.enabled
             else ("real" if verification_engine is not None else "none")
-        )
-        firestore_status = (
-            "configured"
-            if firestore_session_store is not None and firestore_session_store.is_configured
-            else "disabled"
         )
         return {
             "status": "ready",
@@ -236,7 +206,7 @@ def create_app() -> FastAPI:
             "environment": ready_settings.app_env,
             "mockVerificationEnabled": str(ready_settings.mock_verification.enabled).lower(),
             "verificationEngine": verification_engine_kind,
-            "firestorePersistence": firestore_status,
+            "sessionPersistence": "in_memory",
             "demoModeDefault": str(ready_settings.demo_mode.enabled_by_default).lower(),
             "cloudProofEndpoint": "/ops/proof/active-session",
         }
@@ -251,8 +221,7 @@ def create_app() -> FastAPI:
         if cloud_proof_registry is None:
             return {
                 "serviceName": os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_SERVICE"),
-                "project": settings.gemini_live.project or settings.firestore.project or None,
-                "firestoreCollection": settings.firestore.collection,
+                "project": settings.gemini_live.project or None,
                 "activeSession": None,
                 "lastSession": None,
                 "expectedLogEvents": [],

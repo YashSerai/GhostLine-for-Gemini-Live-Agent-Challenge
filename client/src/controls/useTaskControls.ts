@@ -373,6 +373,24 @@ export function useTaskControls(
       const requestId = envelope.requestId;
       const payloadStatus = envelope.payload.status;
 
+      if (envelope.type === "session_state") {
+        const nextTaskContext = parseTaskContext(envelope.payload.currentTaskContext);
+        if (nextTaskContext !== null) {
+          setActiveTaskContext(nextTaskContext);
+        }
+
+        if (
+          envelope.payload.state === "task_assigned" ||
+          envelope.payload.state === "waiting_ready" ||
+          envelope.payload.state === "diagnosis_beat" ||
+          envelope.payload.state === "completed" ||
+          envelope.payload.state === "case_report"
+        ) {
+          setLastNotice(null);
+        }
+        return;
+      }
+
       if (
         envelope.type === "swap_request" &&
         envelope.requestId === undefined &&
@@ -539,3 +557,4 @@ export function useTaskControls(
     swapPending: pending.swap_request,
   };
 }
+

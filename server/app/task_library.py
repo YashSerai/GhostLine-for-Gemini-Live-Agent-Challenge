@@ -157,8 +157,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         target_object="open door",
         completion_check=(
-            "The door that was previously open should now be visibly closed. "
-            "Compare the frames — if the door is still open, the task is NOT done."
+            "The door should be visibly closed in the current frame. If the door still looks open or partly ajar, the task is NOT done."
         ),
     ),
     # Visibility gate that improves every later camera-aware step without
@@ -189,10 +188,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         target_object="light source or light switch",
         completion_check=(
-            "The room should be VISIBLY brighter than the baseline frame. "
-            "Look for: a light source turned on, increased exposure, fewer "
-            "shadows. If the scene looks the same darkness level as the "
-            "baseline, the lights were NOT turned on."
+            "The room should look clearly brighter and more readable in the current frame. Look for: a visible light source on, brighter surfaces, and fewer deep shadows. If the frame still looks dim, the lights were NOT turned on."
         ),
     ),
     # Stability gate that makes the camera preview useful before verification
@@ -222,9 +218,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         target_object="camera feed showing room",
         completion_check=(
-            "The camera feed should be noticeably steadier — less motion "
-            "blur, consistent framing, and the room should be clearly "
-            "readable. Compare sharpness between baseline and current frame."
+            "The camera feed should look steady and readable in the current frame - less motion blur, consistent framing, and a clear room view."
         ),
     ),
     # Anchor step that introduces a clean physical reference point the hotline
@@ -254,9 +248,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         target_object="flat surface or table",
         completion_check=(
-            "A sheet of paper should now be visible on the flat surface that "
-            "was shown in the baseline. If the surface still looks empty, "
-            "the paper was NOT placed."
+            "A sheet of paper should be clearly visible on the flat surface in the current frame. If the surface still looks empty, the paper was NOT placed."
         ),
     ),
     # Companion anchor step that clears staging space when paper placement or
@@ -285,8 +277,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         target_object="cluttered surface area",
         completion_check=(
-            "The surface that had objects on it in the baseline should now be "
-            "visibly cleared — a clean open area where items were before."
+            "The surface should show a visibly cleared open area in the current frame. If it still looks cluttered, the task is NOT done."
         ),
     ),
     # Spoken seal that keeps the hotline voice-first and gives the operator a
@@ -347,9 +338,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         target_object="blank paper or card",
         completion_check=(
-            "The paper or card should now show a drawn mark that wasn't there in "
-            "the baseline. The paper was blank before — it should have visible "
-            "ink or pencil marks now."
+            "The paper or card should clearly show a drawn mark in the current frame. If it still looks blank, the mark was NOT made."
         ),
     ),
     # Reflection beat that supports room diagnosis and visual flavor when the
@@ -384,7 +373,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
     ),
     # Visibility support beat that gives the operator a high-contrast object to
-    # compare against the room feed during uncertain reads.
+    # inspect against the room feed during uncertain reads.
     TaskDefinition(
         id="T10",
         name="Hold Up Vivid Object",
@@ -392,8 +381,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         role_category="diagnostic",
         story_function="visibility",
         operator_description=(
-            "Hold a bright object in frame so the operator can compare color "
-            "stability and exposure."
+            "Hold a bright object in frame so the operator can inspect color clarity and exposure."
         ),
         verification_class="soft_visual",
         substitution_group="visibility_control",
@@ -404,14 +392,13 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         baseline_lore=(
             "Color shift is the first sign of active displacement. If that red "
-            "looks orange on my end, or that blue goes grey — we've got a field "
+            "looks orange on my end, or that blue goes grey - we''ve got a field "
             "distortion. Hold something bright and vivid in front of the camera. "
-            "I need to compare."
+            "I need a strong color reference."
         ),
         target_object="hands or empty area",
         completion_check=(
-            "A bright, vivid, colorful object should now be visible in frame "
-            "where there wasn't one before."
+            "A bright, vivid, colorful object should be clearly visible in the current frame."
         ),
     ),
     # Optional release-style seal step that keeps the hotline feeling adaptive
@@ -440,8 +427,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         target_object="sink or cup or water source",
         completion_check=(
-            "Water should be visibly running from the tap, or being poured "
-            "from a cup. Look for motion of water compared to the dry baseline."
+            "Water should be visibly running from the tap, or being poured from a cup, in the current frame. If no water motion is visible, the task is NOT done."
         ),
     ),
     # Optional marking variant that can swap in when the caller has salt but no
@@ -471,8 +457,7 @@ TASK_LIBRARY: Final[tuple[TaskDefinition, ...]] = (
         ),
         target_object="floor near boundary",
         completion_check=(
-            "Salt should be visible on the floor near the boundary — a white "
-            "line or pile that wasn't there in the baseline frame."
+            "Salt should be visibly present on the floor near the boundary in the current frame - a clear white line or small pile."
         ),
     ),
     # Pacing fallback that keeps the operator alive between harder tasks and can
@@ -621,3 +606,7 @@ __all__ = [
     "TaskTier",
     "TaskVerificationClass",
 ]
+
+
+
+

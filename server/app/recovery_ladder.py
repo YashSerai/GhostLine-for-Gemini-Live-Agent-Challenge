@@ -87,6 +87,17 @@ class VerificationRecoveryLadder:
             )
             >= _MAX_RECOVERY_ATTEMPTS
         )
+    def get_attempt_count(
+        self,
+        *,
+        task_context: dict[str, Any],
+        current_path_mode: str,
+    ) -> int:
+        return self._attempt_counts.get(
+            _build_recovery_key(task_context=task_context, current_path_mode=current_path_mode),
+            0,
+        )
+
 
     def reset(
         self,

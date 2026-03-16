@@ -74,7 +74,7 @@ const TRIGGER_RULES: Record<AutomatedSoundTrigger, TriggerRuleDefinition> = {
   },
   paranormal_shriek: {
     cue: "spectral_shriek",
-    defaultDelayMs: 300,
+    defaultDelayMs: 420,
     priority: 6,
   },
   door_creak: {
@@ -142,11 +142,7 @@ function didTriggerOccur(
     case "camera_granted":
       return previous?.cameraReady !== true && next.cameraReady;
     case "task_assigned":
-      return (
-        typeof next.taskAssignmentKey === "string" &&
-        next.taskAssignmentKey.length > 0 &&
-        next.taskAssignmentKey !== previous?.taskAssignmentKey
-      );
+      return didTaskAssignmentChange(previous, next);
     case "verification_success":
       return (
         next.verificationStatus === "confirmed" &&
@@ -162,19 +158,18 @@ function didTriggerOccur(
           previous?.verificationStatus !== "unconfirmed")
       );
     case "final_verdict":
-      return (
-        next.finalVerdict !== null && next.finalVerdict !== previous?.finalVerdict
-      );
+      return next.finalVerdict !== null && next.finalVerdict !== previous?.finalVerdict;
     case "paranormal_shriek":
-      // Fires when a recovery event occurs (failed verification = escalating activity)
       return (
-        next.verificationStatus === "unconfirmed" &&
-        next.verificationAttemptId !== null &&
-        (previous?.verificationAttemptId !== next.verificationAttemptId ||
-          previous?.verificationStatus !== "unconfirmed")
+        didTaskAssignmentChangeTo(previous, next, "T14") ||
+        (
+          next.verificationStatus === "unconfirmed" &&
+          next.verificationAttemptId !== null &&
+          (previous?.verificationAttemptId !== next.verificationAttemptId ||
+            previous?.verificationStatus !== "unconfirmed")
+        )
       );
     case "door_creak":
-      // Fires on the FIRST task assignment (the disturbance begins)
       return (
         typeof next.taskAssignmentKey === "string" &&
         next.taskAssignmentKey.length > 0 &&
@@ -185,7 +180,25 @@ function didTriggerOccur(
   }
 }
 
+function didTaskAssignmentChange(
+  previous: SoundTriggerSnapshot | null,
+  next: SoundTriggerSnapshot,
+): boolean {
+  return (
+    typeof next.taskAssignmentKey === "string" &&
+    next.taskAssignmentKey.length > 0 &&
+    next.taskAssignmentKey !== previous?.taskAssignmentKey
+  );
+}
+
+function didTaskAssignmentChangeTo(
+  previous: SoundTriggerSnapshot | null,
+  next: SoundTriggerSnapshot,
+  taskId: string,
+): boolean {
+  return next.taskAssignmentKey === taskId && next.taskAssignmentKey !== previous?.taskAssignmentKey;
+}
+
 function isConnected(status: SessionConnectionStatus | null): boolean {
   return status === "connected";
 }
-

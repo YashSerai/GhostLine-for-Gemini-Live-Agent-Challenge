@@ -33,6 +33,14 @@ interface UseTranscriptLayerOptions {
   subscribeToEnvelopes: (listener: SessionEnvelopeListener) => () => void;
 }
 
+function buildTranscriptEntryId(
+  speaker: TranscriptSpeaker,
+  source: string,
+  updatedAt: string,
+  sequence: number,
+): string {
+  return `${speaker}-${source}-${updatedAt}-${sequence}`;
+}
 function isTranscriptSpeaker(value: unknown): value is TranscriptSpeaker {
   return value === "operator" || value === "user";
 }
@@ -179,6 +187,7 @@ export function useTranscriptLayer(
   const { connectionStatus, subscribeToEnvelopes } = options;
   const [entries, setEntries] = useState<TranscriptEntry[]>(loadStoredEntries);
   const activeSessionIdRef = useRef<string | null>(null);
+  const transcriptSequenceRef = useRef(0);
 
   useEffect(() => {
     return subscribeToEnvelopes((envelope) => {
@@ -199,6 +208,7 @@ export function useTranscriptLayer(
       const isFinal = envelope.payload.isFinal === true;
       const source = getPayloadString(envelope.payload, "source") ?? "transport";
       const updatedAt = new Date().toISOString();
+      const sequence = transcriptSequenceRef.current++;
 
       setEntries((currentEntries) => {
         let nextEntries = currentEntries;
@@ -216,7 +226,7 @@ export function useTranscriptLayer(
 
         if (isFinal) {
           const nextFinalEntry: TranscriptEntry = {
-            id: `${speaker}-${source}-${updatedAt}`,
+            id: buildTranscriptEntryId(speaker, source, updatedAt, sequence),
             speaker,
             source,
             status: "final",
@@ -257,7 +267,7 @@ export function useTranscriptLayer(
         }
 
         mutableEntries.push({
-          id: `${speaker}-${source}-${updatedAt}`,
+          id: buildTranscriptEntryId(speaker, source, updatedAt, sequence),
           speaker,
           source,
           status: "partial",
@@ -287,4 +297,5 @@ export function useTranscriptLayer(
     resetTranscript,
   };
 }
+
 

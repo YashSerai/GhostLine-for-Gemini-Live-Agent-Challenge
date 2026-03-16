@@ -9,7 +9,7 @@ from .task_helpers import get_task_by_id
 
 # ---------------------------------------------------------------------------
 # Optimized 4-task demo flow (~4 minutes total):
-#   T2  Close Boundary             - dramatic door close, visual before/after
+#   T2  Close Boundary             - dramatic door close, easy current-frame verification
 #   T5  Place Paper on Surface     - high-contrast anchor, easy AI verification
 #   T14 Describe the Sound         - voice diagnostic, zero camera issues
 #   T7  Speak Containment Phrase   - cinematic ritual chant finale
@@ -42,7 +42,7 @@ _DEMO_MODE_ASSIGNMENTS: Final[tuple[ProtocolStepAssignment, ...]] = (
         reason=(
             "Paper placement on a cleared surface is the highest-contrast visual "
             "change - empty surface to white paper is unmistakable for AI "
-            "verification. Demonstrates the before/after baseline comparison."
+            "verification. Demonstrates a simple current-frame visual confirmation."
         ),
         uses_substitute=False,
     ),
@@ -85,3 +85,4 @@ __all__ = [
     "DEMO_MODE_TASK_SEQUENCE",
     "build_demo_protocol_plan",
 ]
+

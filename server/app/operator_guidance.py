@@ -7,6 +7,11 @@ from typing import Any, Final, Literal, TypeAlias
 
 from .flavor_text_state_model import FlavorTextStateModel
 from .room_scan_copy import ROOM_SCAN_PROMPT
+from .self_report_flow import (
+    CONTAINMENT_PHRASE_TEXT,
+    build_self_report_completion_signal,
+    is_self_report_task_context,
+)
 from .task_helpers import InvalidTaskIdError, get_task_by_id
 
 OperatorGuidanceBeat: TypeAlias = Literal[
@@ -407,6 +412,7 @@ def _int_or_none(value: Any) -> int | None:
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return None
+
 
 
 

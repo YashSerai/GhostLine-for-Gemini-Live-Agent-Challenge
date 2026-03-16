@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any, Final
 
 from .room_scan_copy import ROOM_SCAN_PROMPT
-
+from .self_report_flow import (
+    DEMO_CONTAINMENT_PROMPT_LINE,
+    DEMO_SOUND_PROMPT_LINE,
+)
 # --------------------------------------------------------------------------- #
 # Opener & mic test                                                             #
 # --------------------------------------------------------------------------- #
@@ -25,7 +28,7 @@ DEMO_OPENER_LINE_PROMPT: Final[str] = (
 # --------------------------------------------------------------------------- #
 
 DEMO_CAMERA_REQUEST_LINE: Final[str] = (
-    "Good. Press Grant Camera Access and accept the popup now so I can see the room."
+    "Good. Press Grant Camera Access now so I can see the room."
 )
 
 DEMO_ROOM_SCAN_LINE: Final[str] = ROOM_SCAN_PROMPT
@@ -68,8 +71,10 @@ DEMO_FLAVOR_POST_T14: Final[str] = (
 )
 
 DEMO_FLAVOR_POST_T7: Final[str] = (
-    "I felt that. The harmonic just flatlined - the displacement field "
-    "collapsed. Your containment phrase held. The seal is active."
+    "There it is. The harmonic just flatlined and the room let go. "
+    "That's the moment people expect to feel dramatic. Usually it isn't. "
+    "The pressure drops, the readings go quiet, and whatever was in there is simply gone. "
+    "Clean finish."
 )
 
 DEMO_FLAVOR_BY_TASK: Final[dict[str, str]] = {
@@ -85,15 +90,14 @@ DEMO_FLAVOR_BY_TASK: Final[dict[str, str]] = {
 
 DEMO_RECOVERY_LINE: Final[str] = (
     "I cannot verify that yet. Something is off. Show me the full frame "
-    "again - slowly. I need to compare it to what I saw before."
+    "again - slowly so I can check the task clearly."
 )
 
 DEMO_FINAL_CLOSURE_LINE: Final[str] = (
-    "Containment Desk is closing the case now. All boundary checks confirmed. "
-    "Spectral readings are within safe parameters. The displacement field has "
-    "collapsed. Hold the room quiet tonight - do not disturb the placements. "
-    "If anything resurfaces, call this number again. The Archivist is always on duty. "
-    "Stay safe."
+    "All right. That's done. Readings are flat, the room is clean, and the entity is no longer present. "
+    "Leave the paper where it is tonight and do not reopen the boundary just to test it. "
+    "Containment Desk is closing the case now. If it starts up again, call back and we'll handle it again. "
+    "Good night."
 )
 
 
@@ -101,6 +105,7 @@ def build_demo_task_assignment_line(task_context: dict[str, Any] | None) -> str 
     if not isinstance(task_context, dict):
         return None
 
+    task_id = task_context.get("taskId")
     task_name = task_context.get("taskName")
     if not isinstance(task_name, str) or not task_name.strip():
         return None
@@ -108,6 +113,26 @@ def build_demo_task_assignment_line(task_context: dict[str, Any] | None) -> str 
     operator_description = task_context.get("operatorDescription")
     if not isinstance(operator_description, str) or not operator_description.strip():
         operator_description = "Perform the current containment step once, keep the frame readable, then stop."
+
+    if task_id == "T2":
+        return (
+            "Next step: Close Boundary. Seal the room now. Shut the door or define the edge clearly so "
+            "nothing slips across that threshold. When the boundary is closed, stop and say Ready to Verify."
+        )
+
+    if task_id == "T5":
+        return (
+            "Next step: Place Paper on Flat Surface. No, the field is still moving inside the seal. "
+            "I need a clean anchor point. Put a single sheet of paper flat on a table, desk, or other "
+            "clear surface. That paper will tell us if the displacement field surges again. "
+            "When the paper is down, stop and say Ready to Verify."
+        )
+
+    if task_id == "T14":
+        return DEMO_SOUND_PROMPT_LINE
+
+    if task_id == "T7":
+        return DEMO_CONTAINMENT_PROMPT_LINE
 
     return (
         f"Next step: {task_name.strip()}. {operator_description.strip()} "
@@ -134,3 +159,4 @@ __all__ = [
     "build_demo_task_assignment_line",
     "get_demo_flavor_for_task",
 ]
+

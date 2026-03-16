@@ -319,6 +319,12 @@ export class WebSocketSessionManager {
             ? parsedEnvelope.payload.detail
             : "Server returned an error envelope.";
         this.updateSnapshot({ lastError: detail });
+      } else if (
+        parsedEnvelope.type === "session_state" ||
+        parsedEnvelope.type === "verification_result" ||
+        parsedEnvelope.type === "case_report"
+      ) {
+        this.updateSnapshot({ lastError: null });
       }
 
       this.emitEnvelope(parsedEnvelope);
@@ -400,6 +406,7 @@ export class WebSocketSessionManager {
     });
   }
 }
+
 
 
 

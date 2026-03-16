@@ -992,14 +992,20 @@ h2 {
   padding: 22px;
   display: grid;
   gap: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(214, 126, 74, 0.12), transparent 26%),
+    radial-gradient(circle at bottom left, rgba(127, 169, 202, 0.12), transparent 24%),
+    var(--panel);
 }
 
-.case-report-meta {
+.case-report-hero {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
+  gap: 14px;
 }
 
+.case-report-hero-main,
+.case-report-hero-stats,
 .case-report-meta article,
 .case-report-summary,
 .case-report-closing,
@@ -1009,11 +1015,96 @@ h2 {
   background: rgba(9, 14, 19, 0.78);
 }
 
+.case-report-hero-main,
 .case-report-meta article,
 .case-report-summary,
-.case-report-closing,
-.case-report-task-row {
+.case-report-closing {
   padding: 16px;
+}
+
+.case-report-hero-main {
+  position: relative;
+  display: grid;
+  gap: 16px;
+  overflow: hidden;
+  background: linear-gradient(145deg, rgba(13, 20, 28, 0.98), rgba(8, 12, 18, 0.9));
+}
+
+.case-report-hero-main::after {
+  content: "";
+  position: absolute;
+  inset: auto -20% -40% auto;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(127, 169, 202, 0.12), transparent 68%);
+  pointer-events: none;
+}
+
+.case-report-hero-main-secured {
+  border-color: rgba(133, 194, 156, 0.34);
+}
+
+.case-report-hero-main-partial {
+  border-color: rgba(216, 180, 109, 0.34);
+}
+
+.case-report-hero-main-inconclusive {
+  border-color: rgba(218, 130, 115, 0.34);
+}
+
+.case-report-hero-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.case-report-hero-copy h3,
+.case-report-task-list-heading h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.05;
+  font-weight: 600;
+}
+
+.case-report-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.case-report-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px;
+  background: rgba(8, 13, 19, 0.78);
+}
+
+.case-report-stat-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(127, 169, 202, 0.16);
+  background: linear-gradient(180deg, rgba(13, 20, 28, 0.96), rgba(8, 12, 18, 0.9));
+}
+
+.case-report-stat-card strong {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.case-report-stat-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+  font-size: 0.84rem;
+}
+
+.case-report-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .case-report-summary,
@@ -1050,15 +1141,46 @@ h2 {
 }
 
 .case-report-counts,
-.case-report-task-meta,
-.case-report-task-list {
+.case-report-task-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
+.case-report-task-list-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
 .case-report-task-list {
   display: grid;
+  gap: 12px;
+}
+
+.case-report-task-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.case-report-task-index {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(14, 22, 31, 0.95), rgba(8, 12, 18, 0.9));
+  color: var(--cool);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 1.05rem;
+  letter-spacing: 0.18em;
+}
+
+.case-report-task-body {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
 }
 
 .case-report-task-header {
@@ -1117,18 +1239,34 @@ h2 {
   background: rgba(56, 22, 18, 0.34);
 }
 
-@media (max-width: 860px) {
-  .case-report-meta {
+@media (max-width: 1100px) {
+  .case-report-hero {
     grid-template-columns: 1fr;
-  }
-
-  .case-report-task-header {
-    flex-direction: column;
   }
 }
 
+@media (max-width: 860px) {
+  .case-report-meta,
+  .case-report-hero-stats {
+    grid-template-columns: 1fr;
+  }
 
+  .case-report-task-header,
+  .case-report-task-list-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 
+  .case-report-task-row {
+    grid-template-columns: 1fr;
+  }
+
+  .case-report-task-index {
+    min-height: 52px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
 .case-report-panel-secured {
   border-color: rgba(133, 194, 156, 0.34);
 }
@@ -2031,5 +2169,6 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
 
 
