@@ -190,6 +190,8 @@ export function useCameraPreview(
           capturedAt: frame.capturedAt,
           width: frame.width,
           height: frame.height,
+          lightingScore: frame.analysis.lightingScore,
+          detailScore: frame.analysis.detailScore,
         });
       }
       return frame;

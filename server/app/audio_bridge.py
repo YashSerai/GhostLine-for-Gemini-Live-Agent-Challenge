@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 import logging
+import re
 from typing import Any
 
 from .demo_barge_in import DEMO_BARGE_IN_SCRIPT, matches_demo_barge_in_trigger
@@ -114,6 +115,8 @@ StartVerificationCallback = Callable[[dict[str, Any]], Awaitable[None]]
 HandleSwapRequestCallback = Callable[[dict[str, Any]], Awaitable[None]]
 RecordUserTranscriptCallback = Callable[[str, bool], None]
 UpdateDemoBargeInCallback = Callable[[dict[str, Any]], Awaitable[None]]
+ROOM_SCAN_READY_RESPONSE = "ROOM_SCAN_READY"
+ROOM_SCAN_RETRY_PATTERN = re.compile(r"ROOM_SCAN_RETRY\s*:\s*([a-z_]+)", re.IGNORECASE)
 
 # Minimum JPEG payload size - a 640x480 all-black JPEG is typically <600 bytes.
 # Valid camera frames with real content are usually 5KB+.
@@ -165,6 +168,19 @@ def _check_frame_brightness(
             return False
 
     return True
+
+
+def _parse_room_scan_readiness_response(text: str) -> tuple[str, str | None] | None:
+    normalized = text.strip()
+    if not normalized:
+        return None
+    upper = normalized.upper()
+    if ROOM_SCAN_READY_RESPONSE in upper:
+        return ("ready", None)
+    retry_match = ROOM_SCAN_RETRY_PATTERN.search(normalized)
+    if retry_match is not None:
+        return ("retry", retry_match.group(1).lower())
+    return None
 
 
 class AudioBridgePayloadError(ValueError):
@@ -223,10 +239,50 @@ class SessionAudioBridge:
         self._camera_ready_for_model = False
         self._setup_guidance_turn_active = False
         self._has_received_visual_frame = False
+        self._operator_turn_active = False
+        self._room_scan_eval_pending = False
+        self._room_scan_eval_buffer = ""
+        self._room_scan_status: str | None = None
+        self._room_scan_reason: str | None = None
+
     @property
     def gemini_session(self) -> GeminiLiveSession | None:
         """Expose the live Gemini session for vision verification."""
         return self._gemini_session
+
+    def is_operator_turn_active(self) -> bool:
+        return self._operator_turn_active
+
+    def get_room_scan_readiness(self) -> tuple[str | None, str | None]:
+        return self._room_scan_status, self._room_scan_reason
+
+    def is_room_scan_evaluation_pending(self) -> bool:
+        return self._room_scan_eval_pending
+
+    def reset_room_scan_readiness(self) -> None:
+        self._room_scan_eval_pending = False
+        self._room_scan_eval_buffer = ""
+        self._room_scan_status = None
+        self._room_scan_reason = None
+
+    async def request_room_scan_readiness_check(self) -> None:
+        session = await self._ensure_session()
+        self._room_scan_eval_pending = True
+        self._room_scan_eval_buffer = ""
+        self._room_scan_status = None
+        self._room_scan_reason = None
+        await session.send_text_input(
+            "ROOM_SCAN_READY_CHECK: Review the room-scan frames you have already received. "
+            "Respond with EXACTLY one line and nothing else. "
+            "Return ROOM_SCAN_READY only if you can clearly see a usable wide room view with enough context to begin containment. "
+            "Otherwise return ROOM_SCAN_RETRY: <reason> where <reason> is one of too_dark, too_blurry, too_close, too_narrow, too_unstable, no_room_visible, or insufficient_view."
+        )
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "room_scan_readiness_check_requested",
+            session_id=self.session_id,
+        )
 
     async def send_context_directive(self, context: str) -> None:
         """Send a CONTEXT_DIRECTIVE to Gemini for adaptive dialogue.
@@ -610,6 +666,7 @@ class SessionAudioBridge:
         self._demo_barge_in_restatement_pending = False
         self._demo_barge_in_completed = False
         self._suppress_operator_output_transcripts = False
+        self._operator_turn_active = False
 
     def update_session_context(
         self,
@@ -637,6 +694,7 @@ class SessionAudioBridge:
             self._suppress_operator_output_transcripts = False
             self._discard_operator_audio = False
             self._pending_epoch_advance = False
+            self._operator_turn_active = False
             return
 
         await self._forward_envelope(
@@ -657,6 +715,7 @@ class SessionAudioBridge:
         self._suppress_operator_output_transcripts = False
         self._discard_operator_audio = False
         self._pending_epoch_advance = False
+        self._operator_turn_active = False
 
         if self._receive_task is not None:
             self._receive_task.cancel()
@@ -701,6 +760,7 @@ class SessionAudioBridge:
                 }
             )
         self._setup_guidance_turn_active = self._is_strict_setup_state()
+        self._operator_turn_active = True
         await session.send_text_input(f"OPERATOR_DIRECTIVE: {normalized_text}")
         log_event(
             LOGGER,
@@ -809,6 +869,18 @@ class SessionAudioBridge:
             if not isinstance(raw_audio, (bytes, bytearray)):
                 return
 
+            self._operator_turn_active = True
+
+            if self._room_scan_eval_pending:
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "room_scan_eval_audio_suppressed",
+                    session_id=self.session_id,
+                    byte_count=len(raw_audio),
+                )
+                return
+
             if self._should_block_autonomous_setup_output():
                 log_event(
                     LOGGER,
@@ -863,6 +935,7 @@ class SessionAudioBridge:
             if interrupted:
                 self._discard_operator_audio = True
                 self._pending_epoch_advance = True
+                self._operator_turn_active = False
 
             await self._forward_envelope(
                 {
@@ -917,6 +990,7 @@ class SessionAudioBridge:
             if completed:
                 self._setup_guidance_turn_active = False
                 self._suppress_operator_output_transcripts = False
+                self._operator_turn_active = False
             if self._pending_epoch_advance and completed:
                 await self._release_operator_audio_flush(released_by=event.event_type)
             return
@@ -930,6 +1004,8 @@ class SessionAudioBridge:
                     else "output"
                 )
                 is_final = bool(event.payload.get("finished", False))
+                if direction == "output":
+                    self._operator_turn_active = True
                 if direction == "output" and (
                     self._suppress_operator_output_transcripts
                     or self._should_block_autonomous_setup_output()
@@ -1040,6 +1116,31 @@ class SessionAudioBridge:
                 session_id=self.session_id,
                 event_type=event.event_type,
             )
+
+    async def _finalize_room_scan_readiness_check(self, *, is_final: bool) -> None:
+        parsed = _parse_room_scan_readiness_response(self._room_scan_eval_buffer)
+        if parsed is None and not is_final:
+            return
+
+        status = "retry"
+        reason = "insufficient_view"
+        if parsed is not None:
+            status, parsed_reason = parsed
+            reason = parsed_reason or reason
+
+        self._room_scan_eval_pending = False
+        self._room_scan_status = status
+        self._room_scan_reason = None if status == "ready" else reason
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "room_scan_readiness_check_completed",
+            session_id=self.session_id,
+            status=status,
+            reason=self._room_scan_reason,
+            transcript_preview=self._room_scan_eval_buffer[:120],
+        )
+        self._room_scan_eval_buffer = ""
 
     async def _publish_demo_barge_in_status(
         self,
@@ -1184,10 +1285,6 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
-
-
-
-
 
 
 

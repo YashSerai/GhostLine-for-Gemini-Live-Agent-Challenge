@@ -54,6 +54,13 @@ LOGGER = logging.getLogger("ghostline.backend.websocket")
 _NO_ACK_MESSAGE_TYPES = frozenset({"audio_chunk", "room_scan_frame", "task_vision_frame"})
 _PLACEHOLDER_ONLY_TYPES = frozenset({"transcript"})
 _GUIDANCE_TRANSCRIPT_SOURCES = BACKEND_AUTHORED_TRANSCRIPT_SOURCES
+_MIN_ROOM_SCAN_BRIGHTNESS = 15.0
+_MIN_ROOM_SCAN_DETAIL = 0.05
+_MIN_ROOM_SCAN_LIGHTING_SCORE = _MIN_ROOM_SCAN_BRIGHTNESS / 255.0
+_MIN_VALIDATED_ROOM_SCAN_FRAMES = 3
+_ROOM_SCAN_REJECTION_LINE = (
+    "I am not getting a usable feed. Fix the camera and hold the room still so I can confirm the space."
+)
 
 
 class SessionConnectionManager:
@@ -184,6 +191,51 @@ def _task_id_from_context(task_context: dict[str, Any] | None) -> str | None:
             return value.strip()
     return None
 
+def _coerce_float(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _is_room_scan_frame_usable(payload: dict[str, Any]) -> bool:
+    quality = payload.get("quality")
+    brightness = _coerce_float(payload.get("brightness"))
+    detail = _coerce_float(payload.get("detail"))
+    lighting_score = _coerce_float(payload.get("lightingScore"))
+    detail_score = _coerce_float(payload.get("detailScore"))
+
+    if quality == "unusable":
+        return False
+    if brightness is not None and brightness < _MIN_ROOM_SCAN_BRIGHTNESS:
+        return False
+    if lighting_score is not None and lighting_score < _MIN_ROOM_SCAN_LIGHTING_SCORE:
+        return False
+    if detail is not None and detail < _MIN_ROOM_SCAN_DETAIL:
+        return False
+    if detail_score is not None and detail_score < _MIN_ROOM_SCAN_DETAIL:
+        return False
+    if quality == "usable":
+        return True
+    return any(value is not None for value in (brightness, detail, lighting_score, detail_score))
+
+
+def _room_scan_quality_reason(payload: dict[str, Any]) -> str:
+    explicit_reason = payload.get("qualityReason")
+    if isinstance(explicit_reason, str) and explicit_reason.strip():
+        return explicit_reason.strip()
+    brightness = _coerce_float(payload.get("brightness"))
+    lighting_score = _coerce_float(payload.get("lightingScore"))
+    detail = _coerce_float(payload.get("detail"))
+    detail_score = _coerce_float(payload.get("detailScore"))
+    if brightness is not None and brightness < _MIN_ROOM_SCAN_BRIGHTNESS:
+        return "too_dark"
+    if lighting_score is not None and lighting_score < _MIN_ROOM_SCAN_LIGHTING_SCORE:
+        return "too_dark"
+    if detail is not None and detail < _MIN_ROOM_SCAN_DETAIL:
+        return "low_detail"
+    if detail_score is not None and detail_score < _MIN_ROOM_SCAN_DETAIL:
+        return "low_detail"
+    return "unreadable"
 
 def register_websocket_gateway(app: FastAPI) -> None:
     manager = SessionConnectionManager()
@@ -233,6 +285,9 @@ def register_websocket_gateway(app: FastAPI) -> None:
         demo_final_closure_sent = False
         room_scan_context_primed = False
         task_vision_last_primed_id: str | None = None
+        room_scan_usable_frame_count = 0
+        room_scan_warning_sent = False
+        last_room_scan_quality_reason: str | None = None
         state_machine = SessionStateMachine(
             session_id=session_id,
             forward_envelope=lambda message: manager.send_json(session_id, message),
@@ -263,6 +318,36 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 }
             )
 
+        def reset_room_scan_tracking() -> None:
+            nonlocal room_scan_usable_frame_count
+            nonlocal room_scan_warning_sent
+            nonlocal last_room_scan_quality_reason
+
+            room_scan_usable_frame_count = 0
+            room_scan_warning_sent = False
+            last_room_scan_quality_reason = None
+
+        async def maybe_emit_room_scan_rejection(reason: str) -> None:
+            nonlocal room_scan_warning_sent
+
+            if bridge is None or state_machine.state != "room_sweep":
+                return
+            if bridge.is_operator_turn_active() or room_scan_warning_sent:
+                return
+
+            room_scan_warning_sent = True
+            await bridge.send_operator_guidance(
+                _ROOM_SCAN_REJECTION_LINE,
+                source="session_guidance",
+            )
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "room_scan_rejection_guidance_sent",
+                session_id=session_id,
+                reason=reason,
+            )
+
         async def forward_component_envelope(message: dict[str, Any]) -> None:
             changed = state_machine.observe_outbound_envelope(message)
             guidance_transcript = _extract_guidance_transcript(message)
@@ -283,6 +368,12 @@ def register_websocket_gateway(app: FastAPI) -> None:
                     state_name=payload.get("state") if isinstance(payload.get("state"), str) else None,
                     camera_ready=payload.get("cameraReady") is True,
                 )
+                if (
+                    payload.get("cameraReady") is not True
+                    or payload.get("state") != "room_sweep"
+                    or payload.get("calibrationCapturedAt") is not None
+                ):
+                    reset_room_scan_tracking()
             if guidance_transcript is not None and bridge is not None:
                 guidance_text, guidance_source = guidance_transcript
                 await bridge.send_operator_guidance(
@@ -798,6 +889,15 @@ def register_websocket_gateway(app: FastAPI) -> None:
                     elif envelope.message_type == "room_scan_frame":
                         # Room scan frame for Gemini vision during room setup.
                         frame_data = envelope.payload.get("data")
+                        frame_usable = _is_room_scan_frame_usable(envelope.payload)
+                        if frame_usable:
+                            room_scan_usable_frame_count += 1
+                            room_scan_warning_sent = False
+                            last_room_scan_quality_reason = None
+                        else:
+                            room_scan_usable_frame_count = 0
+                            last_room_scan_quality_reason = _room_scan_quality_reason(envelope.payload)
+                            await maybe_emit_room_scan_rejection(last_room_scan_quality_reason)
                         if isinstance(frame_data, str) and bridge is not None:
                             await maybe_prime_room_scan_context()
                             frame_sent = await bridge.send_room_scan_frame(
@@ -810,11 +910,35 @@ def register_websocket_gateway(app: FastAPI) -> None:
                                 "websocket_room_scan_frame_forwarded",
                                 session_id=session_id,
                                 frame_sent=frame_sent,
+                                frame_usable=frame_usable,
+                                usable_frame_count=room_scan_usable_frame_count,
+                                quality_reason=last_room_scan_quality_reason,
                             )
                     elif envelope.message_type == "calibration_status":
                         # Room setup auto-complete: useRoomScan sends this after a few usable frames
+                        if bridge is not None and bridge.is_operator_turn_active():
+                            raise SessionStateMachineError(
+                                "Room scan cannot lock while the operator is still speaking. Hold the frame and wait for the room prompt to finish."
+                            )
+                        if not _is_room_scan_frame_usable(envelope.payload):
+                            await maybe_emit_room_scan_rejection(_room_scan_quality_reason(envelope.payload))
+                            raise SessionStateMachineError(
+                                "Calibration capture was rejected because the room view is still too dark or unclear."
+                            )
+                        calibration_has_inline_quality = (
+                            _coerce_float(envelope.payload.get("lightingScore")) is not None
+                            or _coerce_float(envelope.payload.get("detailScore")) is not None
+                        )
+                        if (
+                            not calibration_has_inline_quality
+                            and room_scan_usable_frame_count < _MIN_VALIDATED_ROOM_SCAN_FRAMES
+                        ):
+                            raise SessionStateMachineError(
+                                "Calibration requires three usable room-scan frames before the session can advance."
+                            )
                         await state_machine.handle_calibration_status(envelope.payload)
                         room_scan_context_primed = False
+                        reset_room_scan_tracking()
                         if bridge is not None:
                             await bridge.reset_for_setup_transition(
                                 reason="calibration_captured"
@@ -1005,14 +1129,4 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 reason=disconnect_reason,
                 active_connections=manager.active_count,
             )
-
-
-
-
-
-
-
-
-
-
 

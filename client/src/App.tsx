@@ -718,6 +718,7 @@ function App() {
 
   // Room scan: stream camera frames at ~1fps to Gemini during room_sweep
   const roomScan = useRoomScan({
+    calibrationCapturedAt: sessionState.calibrationCapturedAt,
     isScanning: sessionState.state === "room_sweep",
     connectionStatus: status,
     videoRef: camera.videoRef,
