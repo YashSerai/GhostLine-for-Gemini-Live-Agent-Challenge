@@ -32,13 +32,38 @@ The product is voice-first, camera-aware, interruptible, and built around **Gemi
 - barge-in that interrupts operator output
 - operator-led guidance instead of turn-based chat
 - visible state through transcript, HUD, and verification outcomes
-- Google Cloud deployment and persistence
+- Google Cloud deployment and operational proof
 
 ## Quick Start
 
+This repo is currently set up to be judged and reproduced **locally**. The Cloud Run backend used for the submission proof video has been taken down, so judges should follow the local spin-up path below.
+
 Requires **Python 3.11+**, **Node.js 18+**, and a Google Cloud project with **Vertex AI** enabled.
 
-### Server
+### 1. Configure environment values
+
+From the repo root, copy `.env.example` to `.env` and fill in the Google Cloud values you actually use:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Minimum required values in `.env`:
+
+- `GOOGLE_CLOUD_PROJECT`
+- `GOOGLE_CLOUD_LOCATION=us-central1`
+- `GOOGLE_APPLICATION_CREDENTIALS`
+- `VITE_SESSION_WS_URL=ws://127.0.0.1:8000/ws/session`
+
+Notes:
+
+- `GOOGLE_APPLICATION_CREDENTIALS` should point to a local service-account JSON file that can access Vertex AI. Keep that JSON file outside the repo.
+- `MOCK_VERIFICATION_ENABLED=false` is the intended submission setting.
+- Firestore is not required for the current judged path. The current build keeps session state in memory.
+
+### 2. Start the backend
+
+Open a terminal in the repo root and run:
 
 ```powershell
 cd server
@@ -48,7 +73,17 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### Client
+The backend should now be available at `http://127.0.0.1:8000`.
+
+Quick check:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/readyz"
+```
+
+### 3. Start the frontend
+
+Open a second terminal in the repo root and run:
 
 ```powershell
 cd client
@@ -56,7 +91,25 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and choose `Launch Demo Mode` or `Launch Regular Mode`.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
+
+### 4. Run the product locally
+
+For the judged walkthrough, choose `Launch Demo Mode`.
+
+For normal product behavior, choose `Launch Regular Mode`.
+
+Local runtime expectations:
+
+- backend websocket endpoint: `ws://127.0.0.1:8000/ws/session`
+- frontend dev server: `http://127.0.0.1:5173`
+- backend readiness endpoint: `http://127.0.0.1:8000/readyz`
+
+### 5. Judge notes
+
+- The project is reproducible locally with the steps above.
+- The separate Cloud proof video shows the backend running on Google Cloud Run during submission.
+- If you only want the judged flow, use `Launch Demo Mode` after both local processes are running.
 
 ## Key Runtime Pieces
 
@@ -74,15 +127,18 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and choose `Launch Demo Mode
 - [docs/DEMO_MODE.md](docs/DEMO_MODE.md)
   - concise runtime notes for demo-only behavior
 - [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md)
-  - concise submission copy
+  - concise submission copy and link placeholders
+- [docs/HACKATHON_SUBMISSION_GUIDE.md](docs/HACKATHON_SUBMISSION_GUIDE.md)
+  - ordered submission runbook from deploy to Devpost
 - [docs/CLOUD_PROOF_CHECKLIST.md](docs/CLOUD_PROOF_CHECKLIST.md)
   - cloud proof recording checklist
 - [docs/CLOUD_RUN_DEPLOYMENT.md](docs/CLOUD_RUN_DEPLOYMENT.md)
   - deployment instructions
+- [docs/AUTOMATED_DEPLOY.md](docs/AUTOMATED_DEPLOY.md)
+  - scripted Cloud Run deployment helper
 
 ## Useful Endpoints
 
-- `GET /healthz`
 - `GET /readyz`
 - `GET /ops/proof/active-session`
 - `ws://127.0.0.1:8000/ws/session`
@@ -92,4 +148,4 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and choose `Launch Demo Mode
 - `HauntLens` still appears in some historical UI text and prompt remnants. `Ghostline` is the active product name.
 - Demo mode includes controlled scripting for judged reliability; it is not presented as unscripted free play.
 - Verification is staged and evidence-based. The operator is expected to say when the target is missing or not visible enough to confirm.
-
+- The current submission build keeps session state in memory and proves cloud execution through Cloud Run, `/ops/proof/active-session`, Cloud Logging, and Gemini lifecycle events rather than Firestore persistence.

@@ -1,5 +1,6 @@
 flowchart LR
     caller["Caller / Room"]
+    deploy["Repo + deploy-cloud-run.ps1\nEnvironment-driven backend deploy"]
 
     subgraph client["Frontend Hotline UI (React + Vite + TypeScript)"]
         splash["Two-mode splash\nLaunch Demo Mode / Launch Regular Mode"]
@@ -9,24 +10,27 @@ flowchart LR
         demo["Demo mode fixed path"]
     end
 
-    subgraph cloudrun["Cloud Run Service"]
-        subgraph backend["FastAPI Backend (Google GenAI SDK)"]
-            gateway["WebSocket gateway\n/healthz /readyz\n/ops/proof/active-session"]
-            bridge["Gemini Live audio bridge\nAudio streaming\nImage frame delivery\nBarge-in flush"]
-            state["Authoritative session state machine\nSetup + task progression"]
-            planner["Protocol planner\nTask library\nRecovery ladders"]
-            vision["Verification flow\nGemini-based + deterministic checks"]
-            report["Case report generation"]
-        end
-    end
-
     subgraph google["Google Cloud Services"]
+        build["Cloud Build + Artifact Registry\nContainer build and image storage"]
+
+        subgraph cloudrun["Cloud Run Service"]
+            subgraph backend["FastAPI Backend (Google GenAI SDK)"]
+                gateway["WebSocket gateway\n/readyz\n/ops/proof/active-session"]
+                bridge["Gemini Live audio bridge\nAudio streaming\nImage frame delivery\nBarge-in flush"]
+                state["Authoritative session state machine\nSetup + task progression"]
+                planner["Protocol planner\nTask library\nRecovery ladders"]
+                vision["Verification flow\nGemini-based + deterministic checks"]
+                report["Case report generation"]
+            end
+        end
+
         vertex["Vertex AI / Gemini Live\nRealtime voice + vision + transcription"]
-        firestore["Firestore\nSession snapshots\nCase report persistence"]
-        logs["Cloud Logging\nStructured operational events"]
+        logs["Cloud Logging\nStructured operational events\nsession_id proof queries"]
     end
 
     caller -->|"voice, room, camera framing"| media
+    deploy --> build
+    build --> cloudrun
     splash --> ui
     demo --> ui
     media --> ui
@@ -44,7 +48,6 @@ flowchart LR
     vision --> state
 
     bridge <-->|"live audio + image frames"| vertex
-    state -->|"session snapshots\ncase report"| firestore
     gateway -->|"session events"| logs
     bridge -->|"Gemini lifecycle events"| logs
     state -->|"state transitions"| logs
@@ -54,8 +57,10 @@ flowchart LR
     classDef backend fill:#18161f,stroke:#f0a35b,color:#fff3e8,stroke-width:1.5px;
     classDef cloud fill:#142017,stroke:#7edc9a,color:#effff4,stroke-width:1.5px;
     classDef actor fill:#25140f,stroke:#ff9a6b,color:#fff1e8,stroke-width:1.5px;
+    classDef ops fill:#1d1b12,stroke:#d9be62,color:#fff8da,stroke-width:1.5px;
 
     class splash,ui,media,wsClient,demo ui;
     class gateway,bridge,state,planner,vision,report backend;
-    class vertex,firestore,logs cloud;
+    class build,vertex,logs cloud;
     class caller actor;
+    class deploy ops;

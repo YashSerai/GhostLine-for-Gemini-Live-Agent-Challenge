@@ -6,6 +6,7 @@ This document explains the diagram source files and the intended architectural s
 
 - [docs/ARCHITECTURE_DIAGRAM.mmd](docs/ARCHITECTURE_DIAGRAM.mmd)
 - [docs/ARCHITECTURE_DIAGRAM.png](docs/ARCHITECTURE_DIAGRAM.png)
+- [scripts/render-architecture-diagram.ps1](../scripts/render-architecture-diagram.ps1)
 
 ## What The Diagram Should Communicate
 
@@ -28,12 +29,25 @@ This document explains the diagram source files and the intended architectural s
 
 ### Cloud
 
+- Cloud Build and Artifact Registry for scripted backend deployment
+- Cloud Run as the deployed backend surface
 - Vertex AI / Gemini Live for live voice and vision
-- Firestore for session persistence
 - Cloud Logging for structured operational events
+
+## Render Command
+
+Use this helper to regenerate the PNG after editing the Mermaid source:
+
+```powershell
+.\scripts\render-architecture-diagram.ps1
+```
 
 ## Notes
 
 - avoid describing hidden rehearsal-only routes or harnesses unless they are actively used
 - avoid overstating structured room-feature extraction beyond the active runtime path
 - keep the diagram readable for judges rather than exhaustive for maintainers
+- the current submission build keeps session state in memory, so the public diagram should not claim Firestore-backed persistence
+
+
+

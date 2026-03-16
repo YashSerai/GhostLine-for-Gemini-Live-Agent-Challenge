@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document covers Prompt 49 only: preparing the Ghostline backend for Cloud Run deployment.
+This document covers the current Ghostline backend deployment path for the Gemini Live Agent Challenge.
 
 It covers:
 
@@ -10,12 +10,11 @@ It covers:
 - Cloud Run deploy
 - required runtime environment variables
 - health and WebSocket expectations
-
-It does not cover Prompt 50 cloud-proof recording workflow.
+- local frontend connection to the deployed backend
 
 For the recording workflow itself, use [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md).
 
-For the optional deployment helper added in Prompt 55, use [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\AUTOMATED_DEPLOY.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\AUTOMATED_DEPLOY.md).
+For the optional deployment helper, use [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\AUTOMATED_DEPLOY.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\AUTOMATED_DEPLOY.md).
 
 ## Prerequisites
 
@@ -25,7 +24,6 @@ You need:
 - Artifact Registry enabled
 - Cloud Run enabled
 - Vertex AI enabled
-- Firestore enabled if you want session persistence in production
 - `gcloud` authenticated against the target project
 
 Recommended APIs:
@@ -34,7 +32,6 @@ Recommended APIs:
 - `artifactregistry.googleapis.com`
 - `cloudbuild.googleapis.com`
 - `aiplatform.googleapis.com`
-- `firestore.googleapis.com`
 
 ## Container Layout
 
@@ -69,10 +66,10 @@ The backend is already environment-driven. The main runtime variables are:
 - `GEMINI_LIVE_OUTPUT_TRANSCRIPTION`
 - `MOCK_VERIFICATION_ENABLED`
 - `DEMO_MODE_DEFAULT`
-- `FIRESTORE_DATABASE`
-- `FIRESTORE_SESSIONS_COLLECTION`
 
 For Cloud Run, prefer attaching a service account to the service instead of setting `GOOGLE_APPLICATION_CREDENTIALS` to a JSON file path.
+
+The current submission build keeps session state in memory, so Firestore setup is not required for the judged deployment path.
 
 ## Build And Push
 
@@ -110,7 +107,7 @@ gcloud run deploy ghostline-backend `
   --allow-unauthenticated `
   --port 8080 `
   --timeout 3600 `
-  --set-env-vars APP_NAME=ghostline,APP_ENV=production,LOG_LEVEL=INFO,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,VERTEX_AI_MODEL=gemini-live-2.5-flash-native-audio,GEMINI_LIVE_INPUT_TRANSCRIPTION=true,GEMINI_LIVE_OUTPUT_TRANSCRIPTION=true,MOCK_VERIFICATION_ENABLED=false,DEMO_MODE_DEFAULT=false,FIRESTORE_DATABASE=(default),FIRESTORE_SESSIONS_COLLECTION=ghostline_sessions
+  --set-env-vars APP_NAME=ghostline,APP_ENV=production,LOG_LEVEL=INFO,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,VERTEX_AI_MODEL=gemini-live-2.5-flash-native-audio,GEMINI_LIVE_INPUT_TRANSCRIPTION=true,GEMINI_LIVE_OUTPUT_TRANSCRIPTION=true,MOCK_VERIFICATION_ENABLED=false,DEMO_MODE_DEFAULT=false
 ```
 
 If you are using a dedicated runtime service account, attach it during deploy:
@@ -124,7 +121,7 @@ gcloud run deploy ghostline-backend `
   --allow-unauthenticated `
   --port 8080 `
   --timeout 3600 `
-  --set-env-vars APP_NAME=ghostline,APP_ENV=production,LOG_LEVEL=INFO,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,VERTEX_AI_MODEL=gemini-live-2.5-flash-native-audio,GEMINI_LIVE_INPUT_TRANSCRIPTION=true,GEMINI_LIVE_OUTPUT_TRANSCRIPTION=true,MOCK_VERIFICATION_ENABLED=false,DEMO_MODE_DEFAULT=false,FIRESTORE_DATABASE=(default),FIRESTORE_SESSIONS_COLLECTION=ghostline_sessions
+  --set-env-vars APP_NAME=ghostline,APP_ENV=production,LOG_LEVEL=INFO,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,VERTEX_AI_MODEL=gemini-live-2.5-flash-native-audio,GEMINI_LIVE_INPUT_TRANSCRIPTION=true,GEMINI_LIVE_OUTPUT_TRANSCRIPTION=true,MOCK_VERIFICATION_ENABLED=false,DEMO_MODE_DEFAULT=false
 ```
 
 ## Health Checks After Deploy
@@ -132,14 +129,15 @@ gcloud run deploy ghostline-backend `
 Replace the URL with your deployed service URL.
 
 ```powershell
-Invoke-RestMethod "https://your-cloud-run-url/healthz"
 Invoke-RestMethod "https://your-cloud-run-url/readyz"
+Invoke-RestMethod "https://your-cloud-run-url/ops/proof/active-session"
 ```
 
 Expected:
 
-- `/healthz` returns `status=ok`
 - `/readyz` returns `status=ready`
+- `/readyz` returns `sessionPersistence=in_memory`
+- `/ops/proof/active-session` returns the service name and, during an active call, the current `sessionId`
 
 ## WebSocket Route
 
@@ -153,13 +151,23 @@ Cloud Run supports WebSocket traffic over the same service URL. The client shoul
 wss://your-cloud-run-url/ws/session
 ```
 
+## Point The Local Frontend At Cloud Run
+
+For the hackathon submission, it is acceptable to keep the frontend local and only deploy the backend.
+
+Use a PowerShell session like this:
+
+```powershell
+$env:VITE_SESSION_WS_URL = "wss://your-cloud-run-url/ws/session"
+cd client
+& "C:\nvm4w\nodejs\npm.cmd" run dev
+```
+
+If you later host the frontend on a non-local origin, also set `SERVER_CORS_ORIGINS` on the backend to include that origin.
+
 ## Notes
 
 - Do not hardcode project IDs, secrets, or credential file paths in the image.
 - Prefer Cloud Run service-account auth over shipping credential files.
 - Keep `MOCK_VERIFICATION_ENABLED=false` in production.
-- If Firestore is not configured yet, the backend still runs, but persistence will report as disabled in `/readyz`.
-
-
-
-
+- The current submission build intentionally reports `sessionPersistence=in_memory` in `/readyz`.

@@ -23,9 +23,9 @@ function Get-OptionalEnv([string]$Name, [string]$Default = '') {
     return $value.Trim()
 }
 
-function Invoke-Gcloud([string[]]$Args) {
-    Write-Host ("gcloud " + ($Args -join ' '))
-    & gcloud @Args
+function Invoke-Gcloud([string[]]$CommandArgs) {
+    Write-Host ("gcloud " + ($CommandArgs -join ' '))
+    & gcloud @CommandArgs
     if ($LASTEXITCODE -ne 0) {
         throw "gcloud command failed with exit code $LASTEXITCODE"
     }

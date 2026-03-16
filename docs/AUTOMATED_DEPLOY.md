@@ -47,12 +47,12 @@ Recommended variables:
 - `GEMINI_LIVE_OUTPUT_TRANSCRIPTION`
 - `MOCK_VERIFICATION_ENABLED`
 - `DEMO_MODE_DEFAULT`
-- `FIRESTORE_DATABASE`
-- `FIRESTORE_SESSIONS_COLLECTION`
 - `CLOUD_RUN_SERVICE_ACCOUNT`
 - `CLOUD_RUN_TIMEOUT_SECONDS`
 
 Defaults are built into the script for the optional variables so the helper stays simple.
+
+The current submission build keeps session state in memory, so Firestore configuration is not required for the judged deploy path.
 
 ## Example Usage
 
@@ -90,8 +90,32 @@ $env:CLOUD_RUN_SERVICE_ACCOUNT = "ghostline-backend@your-gcp-project-id.iam.gser
 & ".\server\deploy-cloud-run.ps1" -NoAllowUnauthenticated
 ```
 
+## Point The Local Frontend At Cloud Run
+
+After deployment, keep the frontend local and point it at the deployed backend:
+
+```powershell
+$env:VITE_SESSION_WS_URL = "wss://YOUR-CLOUD-RUN-URL/ws/session"
+cd client
+& "C:\nvm4w\nodejs\npm.cmd" run dev
+```
+
+That is enough for the challenge. The backend is the required Google Cloud deployment surface.
+
+## How To Prove The Automation Bonus
+
+In the public repo, make sure judges can see:
+
+- `server/deploy-cloud-run.ps1`
+- `docs/AUTOMATED_DEPLOY.md`
+
+On Devpost, add a short note like this:
+
+`Backend deployment to Cloud Run is automated with a repo-included deploy script: https://github.com/YashSerai/GhostLine-for-Gemini-Live-Agent-Challenge/blob/main/deploy.sh. Setup notes: https://github.com/YashSerai/GhostLine-for-Gemini-Live-Agent-Challenge/blob/main/docs/AUTOMATED_DEPLOY.md.`
+
 ## Notes
 
 - The script uses environment variables instead of hardcoded project-specific values.
 - It is safe to keep as a post-MVP helper because it does not alter product logic.
 - For cloud-proof recording after deployment, use [C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md](C:\Users\yashs\OneDrive\Desktop\Yash Stuff\Ghostline\GhostLine-for-Gemini-Live-Agent-Challenge\docs\CLOUD_PROOF_CHECKLIST.md).
+

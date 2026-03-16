@@ -1,148 +1,51 @@
-# Ghostline Public Build Post Draft
+# How I Built Ghostline: 56 Prompts and a Paranormal Hotline ðŸ‘»ðŸ“ž
 
-## Working Title
+*This post was created for the purposes of entering the Gemini Live Agent Challenge. #GeminiLiveAgentChallenge*
 
-Building Ghostline: A Live Paranormal Hotline with Gemini Live, Honest Verification, and Real Interruption Handling
+Most people approach building AI apps like a freeform chatâ€”endlessly iterating code back and forth, hoping the LLM doesn't hallucinate and break the entire structure.
 
-## Required Hackathon Line
+For the **Gemini Live Agent Challenge**, I wanted to approach it differently. I wanted to build **Ghostline**, a live paranormal hotline powered by Gemini Live. But rather than chaotic open-ended prompting, I drafted a structured **56-step build guide** and handed it straight to Google Antigravity (Google's AI agent).
 
-Include this sentence somewhere near the top of the final published version:
+It almost one-shot the entire architecture. Here is how I built it and why this method changes the way we should think about AI development. ðŸ§µ
 
-`This post was created for the purposes of entering the Gemini Live Agent Challenge.`
+## The Inspiration: "Ghostfacers" ðŸŽ¬
 
-If you share the post on social media, include:
+If you've watched *Supernatural*, you probably remember the **"Ghostfacers"**â€”the amateur, reality-show ghost hunters who are always getting in over their heads. I loved that energy.
 
-`#GeminiLiveAgentChallenge`
+But for a multimodal AI interaction, I didn't want the user to talk to a theatrical horror narrator. Instead, I wanted the user to step into the shoes of the frantic caller dealing with a *Supernatural*-style breach, dialing into a calm, procedural **Containment Desk**. The operatorâ€”The Archivistâ€”would use Gemini Live's audio and vision capabilities to try to verify and contain the paranormal incident in the user's room.
 
-## Short Summary
+*(Note: I'll be posting a separate article later detailing what Ghostline is and how to play it. This article is all about HOW I built it).*
 
-Ghostline is a live paranormal containment hotline built for the Gemini Live Agent Challenge. Instead of making a chatbot with spooky copy, I built a realtime voice-and-camera experience where a caller speaks with **The Archivist, Containment Desk**, performs short containment tasks in their room, interrupts the operator in real time, and only advances when the system can honestly verify what happened.
+## Building by "Build Guide" ðŸ› ï¸
 
-## Draft Post
+Instead of jumping into an IDE and prompting line-by-line, I spent my time writing a **56-prompt milestone-based build guide**. I treated the AI agent like a senior engineer executing a rigorous spec.
 
-This post was created for the purposes of entering the Gemini Live Agent Challenge.
+Here is the flow I defined:
+1. **Stack Lock:** Define the stack upfront (React/Vite frontend, FastAPI/WebSockets backend).
+2. **Session Architecture:** Map out the exact state machine that prevents the AI from just making up tasks.
+3. **Live Audio Bridge:** Connect to Vertex AI / Gemini Live for low-latency, interruptible voice.
+4. **Task Flow & Vision System:** Implement the "staged verification" where the AI checks the live camera feed honestly.
+5. **Deployment:** Push to Google Cloud Run and verify with Cloud Logging.
 
-Most AI demos still collapse into the same pattern: a text box, a voice mode, and a thin illusion of interactivity layered on top.
+I handed the 56-prompt guide to the Google agent, and because the instructions were rigorously phased, it practically **one-shot** the core structure of the app. It forced the AI to solve problems phase-by-phase without hallucinating out of scope.
 
-For the Gemini Live Agent Challenge, I wanted to build something that actually felt like a **Live Agents** project. The result was **Ghostline**, a live paranormal containment hotline where a caller speaks with a calm operator called **The Archivist, Containment Desk**. The caller grants camera and mic access in-call, is guided through a short room-containment protocol, gets interrupted and recovered in real time, and ends with a formal case report.
+The beauty of this approach is that the build guide is in the public repository. **You can literally pull up my prompt guide and work backwards** to see exactly how the AI built the product from the ground up!
 
-The core idea was simple: if this product is supposed to feel like a live hotline, it cannot behave like a chatbot with a horror theme. It needs realtime audio, camera-aware behavior, visible grounding, and honest uncertainty.
+## The Google Cloud Stack â˜ï¸
 
-### Why this is a Live Agents project
+Using an AI agent to build the code is only half the battle; the architecture needs to be hosted robustly. For Ghostline, the integration with Google Cloud was essential:
 
-Ghostline was designed specifically around the Live Agents category.
+ðŸ”¹ **Vertex AI & Gemini Live:** Powered the real-time, interruptible multi-modal voice and vision. 
+ðŸ”¹ **Google Cloud Run:** Hosted the FastAPI backend. It gave the app the scale, fast cold starts, and reliability needed for maintaining active live WebSocket connections.
+ðŸ”¹ **Cloud Logging:** Handled structured session tracking. This allowed me to provide operational proof that the backend and the Gemini sessions were genuinely running live on GCP.
 
-It is:
+By forcing the project through explicit phasesâ€”from local audio to Vertex AI integration to a fully automated Cloud Run deploymentâ€”the build guide created a stable spine that the AI could easily execute against.
 
-- voice-first
-- camera-aware
-- interruptible
-- stateful across a live session
-- grounded in visible UI state
-- hosted on Google Cloud
+## The Takeaway ðŸ§ 
 
-The experience is not just "talk to a model." The user enters a live call, gets permissions requested in context, performs real-world steps in the room, triggers staged verification, and can interrupt the operator while the operator is still speaking.
+Treating AI like an open-ended chatbot makes building software brittle. Treating it like an execution engine for a rigorous, phased **build guide** makes it incredibly reliable and powerful. 
 
-That last part matters. A lot of AI voice demos still feel linear because the interruption path is weak. In Ghostline, barge-in is a first-class interaction. Operator audio stops immediately, stale queued audio is flushed, and the Archivist restates briefly instead of continuing to talk over the user.
+If you want to see exactly how those 56 prompts structured the project, check out the repository. And if you're ever dealing with a containment breach... call The Archivist. ðŸ“¸ðŸ”¦
 
-### The product idea
-
-The hotline fantasy is that you have called a containment desk during an active paranormal incident. The operator is procedural, clipped, and calm. They are not a theatrical horror narrator.
-
-The user is guided through a short sequence of household containment tasks like:
-
-- show the threshold
-- close the boundary
-- increase the light
-- stabilize the camera
-- clear a small surface
-- speak a containment phrase
-
-These tasks are not invented on the fly. They come from a deterministic, curated library. The user should feel like the system is adapting to the room, but the backend remains in control of task choice, verification, recovery, and final reporting.
-
-### Key technical decisions
-
-#### 1. Realtime voice and camera with staged verification
-
-One important choice was not pretending the system had richer scene understanding than it really did.
-
-Instead of bluffing continuous certainty, Ghostline uses a staged **Ready to Verify** pattern:
-
-1. the user performs a task
-2. the user says or presses **Ready to Verify**
-3. the operator asks them to hold still
-4. the client captures the verification window
-5. the backend returns `confirmed`, `unconfirmed`, or `user_confirmed_only`
-
-That pattern made the product more honest and easier to understand. It also gave the experience a clear rhythm that plays well in a live demo.
-
-#### 2. Deterministic task system instead of freeform improvisation
-
-Ghostline uses a curated task library, a protocol planner, and an authoritative session state machine. That lets the experience feel adaptive without turning into a brittle freeform agent loop.
-
-The result is easier to debug, easier to rehearse, and easier to demonstrate credibly.
-
-#### 3. Interruption handling had to be real
-
-The interruption path is one of the most important parts of the project.
-
-Ghostline streams operator audio back to the client and tracks playback epochs so stale audio can be discarded after a barge-in. When the user interrupts, the playback buffer is flushed and the UI reflects the interrupted/listening state. That behavior is visible in both the transcript layer and the grounding HUD.
-
-Without that, the experience immediately feels fake.
-
-#### 4. Honest recovery instead of fake certainty
-
-If verification fails, Ghostline uses a deterministic recovery ladder: adjust framing, correct the physical task, retry, and only then reroute if needed.
-
-This keeps the hotline procedural instead of brittle, and avoids the common failure mode where an AI demo either dead-ends or bluffs.
-
-### Google Cloud hosting
-
-The backend is built with FastAPI and prepared for deployment on **Cloud Run**.
-
-The cloud path includes:
-
-- Cloud Run for hosting
-- Firestore for persisted session state and case reports
-- Cloud Logging for structured session events
-- Vertex AI / Gemini Live for realtime multimodal interaction
-
-That matters both technically and for the challenge itself. The project is not only using Gemini Live; it is also instrumented so a session can be followed through logs, Firestore, and cloud proof artifacts.
-
-### Demo mode mattered too
-
-A hackathon project like this is judged both as a product and as a demonstration.
-
-So Ghostline includes a first-class **Demo Mode** with:
-
-- a fixed safe task path
-- one scripted diagnosis beat
-- one scripted barge-in moment
-- optional natural recovery beat if the operator rejects a real failed verify
-- a fast reset path between takes
-
-That does not make the product less real. It makes the best presentation path more repeatable.
-
-### What I learned
-
-A few things became very clear while building this:
-
-- a Live Agents project needs more than voice output
-- interruption quality is one of the fastest ways to tell whether the experience feels live
-- staged verification is better than overclaiming what the camera can understand
-- deterministic architecture is not the enemy of immersion; in a system like this it is what makes the product reliable
-- submission assets are part of the product because they shape how judges understand what they are seeing
-
-## Optional Shorter Outline
-
-If you publish a shorter post instead of the full draft, use this structure:
-
-1. why most AI voice demos still feel like chatbots
-2. the Ghostline idea
-3. why it qualifies as a Live Agents project
-4. realtime voice + staged camera verification
-5. deterministic tasks and recovery ladders
-6. real interruption handling
-7. Google Cloud + Gemini Live architecture
-8. what Demo Mode taught you about presentation
-9. closing reflection
+ðŸ”— **Code & Build Guide:** `https://github.com/YashSerai/GhostLine-for-Gemini-Live-Agent-Challenge/tree/main`
+ðŸ“¹ **Demo:** `https://youtu.be/hWQC8xShboc`

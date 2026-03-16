@@ -4,6 +4,17 @@ This is the end-to-end runbook from current repo state to final Devpost submissi
 
 Use this document in order. Do not jump to recording until the earlier verification steps are complete.
 
+## 0. Current Submission Truth
+
+Before you do anything else, keep this aligned across the repo and Devpost:
+
+- backend deployment target: Google Cloud Run
+- cloud proof path: Cloud Run + `/readyz` + `/ops/proof/active-session` + Cloud Logging + `gemini_live_session_created`
+- current persistence mode: `in_memory`
+- local frontend against deployed backend is acceptable for the challenge
+
+Do not claim Firestore-backed proof unless you re-enable and verify it first.
+
 ## 1. Submission Checklist
 
 ### Required
@@ -45,9 +56,26 @@ Use this document in order. Do not jump to recording until the earlier verificat
   - [docs/AUTOMATED_DEPLOY.md](docs/AUTOMATED_DEPLOY.md)
   - [server/deploy-cloud-run.ps1](../server/deploy-cloud-run.ps1)
 
-## 3. Before You Record Anything
+## 3. Ordered Next Steps From Here
 
-### 3.1 Clean repo surface
+Do these in order:
+
+1. finish one clean local verification pass
+2. deploy the backend to Cloud Run
+3. point the local frontend at the deployed backend
+4. verify `/readyz` and `/ops/proof/active-session`
+5. record the cloud proof clip
+6. refresh the architecture diagram PNG from the Mermaid source
+7. rehearse and record the judged demo
+8. publish the build post and optional X share
+9. join a GDG, make your developer profile public, and copy the public URL
+10. fill Devpost using [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md)
+11. upload the architecture diagram, demo video, cloud proof clip, repo URL, and bonus links
+12. do one incognito pass on every public link
+
+## 4. Before You Record Anything
+
+### 4.1 Clean repo surface
 
 Before judges see the repo, decide what you want visible.
 
@@ -57,11 +85,13 @@ Recommended keep list:
 - `docs/DEMO_GUIDE.md`
 - `docs/DEMO_MODE.md`
 - `docs/DEVPOST_SUBMISSION.md`
+- `docs/HACKATHON_SUBMISSION_GUIDE.md`
 - `docs/CLOUD_PROOF_CHECKLIST.md`
 - `docs/CLOUD_RUN_DEPLOYMENT.md`
 - `docs/AUTOMATED_DEPLOY.md`
 - `docs/ARCHITECTURE_DIAGRAM.png`
 - `docs/ARCHITECTURE_DIAGRAM.mmd`
+- `docs/PUBLIC_BUILD_POST.md`
 
 Recommended internal-only docs:
 
@@ -69,11 +99,7 @@ Recommended internal-only docs:
 - `docs/BUILD_GUIDE.md`
 - `docs/PRODUCT_CONTEXT.md`
 
-
-Legacy demo doc stubs have already been removed from the public doc surface.
-
-
-### 3.2 Verify README
+### 4.2 Verify README
 
 Before submission, confirm the README still matches reality:
 
@@ -82,8 +108,9 @@ Before submission, confirm the README still matches reality:
 - client run command is correct
 - judges can understand Demo vs Regular quickly
 - no stale `?demo` or rehearsal-only claims remain
+- no public docs still claim Firestore-backed cloud proof
 
-### 3.3 Verify core runtime locally
+### 4.3 Verify core runtime locally
 
 Run a full local pass before touching cloud proof or the judged demo.
 
@@ -105,35 +132,77 @@ Verify all of these manually:
 
 If any of those fail, fix them before recording.
 
-## 4. Cloud Deployment Verification
+## 5. Cloud Deployment Verification
 
-### 4.1 Deploy backend to Cloud Run
+### 5.1 Deploy backend to Cloud Run
 
 Use one of these:
 
 - manual guide: [docs/CLOUD_RUN_DEPLOYMENT.md](docs/CLOUD_RUN_DEPLOYMENT.md)
 - scripted helper: [docs/AUTOMATED_DEPLOY.md](docs/AUTOMATED_DEPLOY.md)
 
-### 4.2 Confirm required cloud surfaces exist
+### 5.2 Fastest backend-only path
+
+Deploy the backend, then keep the frontend local.
+
+Basic sequence:
+
+```powershell
+$env:GOOGLE_CLOUD_PROJECT = "your-gcp-project-id"
+$env:GOOGLE_CLOUD_LOCATION = "us-central1"
+$env:CLOUD_RUN_SERVICE = "ghostline-backend"
+$env:ARTIFACT_REGISTRY_REPOSITORY = "ghostline-images"
+$env:ARTIFACT_IMAGE_NAME = "ghostline-backend"
+$env:APP_ENV = "production"
+$env:MOCK_VERIFICATION_ENABLED = "false"
+$env:DEMO_MODE_DEFAULT = "false"
+
+& ".\server\deploy-cloud-run.ps1" -CreateRepositoryIfMissing
+```
+
+Then point the local frontend at Cloud Run:
+
+```powershell
+$env:VITE_SESSION_WS_URL = "wss://YOUR-CLOUD-RUN-URL/ws/session"
+cd client
+& "C:
+vm4w
+odejs
+pm.cmd" run dev
+```
+
+### 5.3 Confirm required cloud surfaces exist
 
 Before recording cloud proof, verify:
 
 - Cloud Run service is healthy
-- `/healthz` works
 - `/readyz` works
 - `/ops/proof/active-session` works
-- Firestore writes are visible
 - Cloud Logging contains session events
-- the deployed frontend or local frontend points to the deployed backend
+- the local frontend points to the deployed backend
+- `/readyz` reports `sessionPersistence` as `in_memory`
 
-### 4.3 Verify bonus deployment automation claim
+Run these checks after deploy:
+
+```powershell
+Invoke-RestMethod "https://YOUR-CLOUD-RUN-URL/readyz"
+Invoke-RestMethod "https://YOUR-CLOUD-RUN-URL/ops/proof/active-session"
+```
+
+Expected:
+
+- `/readyz` returns `status=ready`
+- `/readyz` shows `sessionPersistence=in_memory`
+- `/ops/proof/active-session` returns the service name and, during an active call, the current `sessionId`
+
+### 5.4 Verify bonus deployment automation claim
 
 For the automation bonus, confirm these files are in the public repo and still accurate:
 
 - [server/deploy-cloud-run.ps1](../server/deploy-cloud-run.ps1)
 - [docs/AUTOMATED_DEPLOY.md](docs/AUTOMATED_DEPLOY.md)
 
-## 5. Record The Cloud Proof Clip
+## 6. Record The Cloud Proof Clip
 
 Use [docs/CLOUD_PROOF_CHECKLIST.md](docs/CLOUD_PROOF_CHECKLIST.md).
 
@@ -142,20 +211,20 @@ Use [docs/CLOUD_PROOF_CHECKLIST.md](docs/CLOUD_PROOF_CHECKLIST.md).
 Your proof clip should show one session ID across:
 
 1. Cloud Run
-2. `/ops/proof/active-session`
-3. Cloud Logging
-4. Firestore
+2. `/readyz`
+3. `/ops/proof/active-session`
+4. Cloud Logging
 5. Gemini / Vertex evidence log
 
 ### Recommended order
 
 1. open the deployed app
 2. start one fresh session
-3. open `/ops/proof/active-session`
-4. capture the active `sessionId`
-5. show the Cloud Run service page
-6. search Cloud Logging for that session ID
-7. open the matching Firestore document
+3. open `/readyz`
+4. open `/ops/proof/active-session`
+5. capture the active `sessionId`
+6. show the Cloud Run service page
+7. search Cloud Logging for that session ID
 8. show `gemini_live_session_created` for that same session ID
 
 ### Keep this clip short
@@ -164,9 +233,37 @@ Target: `45-90 seconds`
 
 It is proof, not a product pitch.
 
-## 6. Prepare The Judged Demo
+## 7. Update The Architecture Diagram
 
-### 6.1 Room setup
+If you change the architecture story, update both files:
+
+- `docs/ARCHITECTURE_DIAGRAM.mmd`
+- `docs/ARCHITECTURE_DIAGRAM.png`
+
+Recommended render command:
+
+```powershell
+.\scripts\render-architecture-diagram.ps1
+```
+
+Direct Mermaid CLI equivalent:
+
+```powershell
+& "C:\nvm4w\nodejs\npm.cmd" exec --yes @mermaid-js/mermaid-cli -- -i docs/ARCHITECTURE_DIAGRAM.mmd -o docs/ARCHITECTURE_DIAGRAM.png -w 2400 --backgroundColor white
+```
+
+Current diagram story should show:
+
+- local or hosted frontend
+- Cloud Run backend
+- Vertex AI / Gemini Live
+- Cloud Logging
+- automated deployment path through the repo deploy helper and Cloud Build / Artifact Registry
+- no Firestore claim in the public submission build
+
+## 8. Prepare The Judged Demo
+
+### 8.1 Room setup
 
 Prepare the environment for the fixed demo path:
 
@@ -176,7 +273,7 @@ Prepare the environment for the fixed demo path:
 - headphones if possible
 - camera path that can show doorway, surface, and you moving between them
 
-### 6.2 Demo mode path
+### 8.2 Demo mode path
 
 Use Demo Mode only for the judged walkthrough.
 
@@ -187,7 +284,7 @@ Fixed path:
 3. `T14` Describe the Sound
 4. `T7` Speak Containment Phrase
 
-### 6.3 Exact moments to land
+### 8.3 Exact moments to land
 
 Your demo should clearly show these product strengths:
 
@@ -200,7 +297,7 @@ Your demo should clearly show these product strengths:
 - one real interruption moment
 - final case report
 
-## 7. Judged Demo Recording Script
+## 9. Judged Demo Recording Script
 
 This is the recommended recording sequence.
 
@@ -274,9 +371,9 @@ Recommended timing:
 - `3:10-3:35` `T7`
 - `3:35-3:55` case report + close
 
-## 8. Fill Out Devpost Submission
+## 10. Fill Out Devpost Submission
 
-### 8.1 Text description
+### 10.1 Text description
 
 Use [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) as the base.
 
@@ -286,8 +383,12 @@ When filling Devpost, make sure you include:
 - technologies used
 - other data sources used or note that there are no external data feeds
 - findings and learnings
+- the cloud proof clip URL
+- the automated deployment proof links
+- the build post URL
+- the GDG or public developer profile URL
 
-### 8.2 Repo URL
+### 10.2 Repo URL
 
 Use the public GitHub repo URL.
 
@@ -298,15 +399,25 @@ Before submitting, verify:
 - architecture diagram is easy to find
 - deployment automation file is visible for bonus points
 
-### 8.3 Cloud proof
+Use the placeholder section in [docs/DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md) to fill:
+
+- repo URL
+- demo video URL
+- cloud proof URL
+- Cloud Run backend URL
+- build post or article URL
+- automated deployment proof links
+- GDG or public developer profile URL
+
+### 10.3 Cloud proof
 
 Upload or link the separate cloud proof recording.
 
-### 8.4 Architecture diagram
+### 10.4 Architecture diagram
 
 Upload [docs/ARCHITECTURE_DIAGRAM.png](docs/ARCHITECTURE_DIAGRAM.png) into the Devpost image carousel or file upload so it is easy for judges to find.
 
-### 8.5 Demo video
+### 10.5 Demo video
 
 Upload the under-4-minute real product demo.
 
@@ -315,10 +426,10 @@ Before uploading, verify:
 - no mockups
 - real software only
 - audio is understandable
-- transcript/HUD are readable enough on video
+- transcript and HUD are readable enough on video
 - case report is visible at the end
 
-## 9. Bonus Item 1: Publish Build Content
+## 11. Bonus Item 1: Publish Build Content
 
 You already have a draft here:
 
@@ -332,14 +443,13 @@ If sharing on social media, include:
 
 - `#GeminiLiveAgentChallenge`
 
-Recommended publish order:
+Recommended publishing approach:
 
-1. finalize the post
-2. publish it on your preferred platform
-3. save the public URL
-4. add that URL to your Devpost submission
+- publish the longer article on Medium, Dev.to, LinkedIn, or another public page
+- optionally share that article on X with the hashtag
+- use the article URL as the main bonus link in Devpost
 
-## 10. Bonus Item 2: Automated Deployment
+## 12. Bonus Item 2: Automated Deployment
 
 You already have this bonus prepared.
 
@@ -350,7 +460,12 @@ Verify that these are present in the public repo:
 
 On Devpost, mention that backend deployment to Cloud Run is automated with a repo-included script.
 
-## 11. Bonus Item 3: Google Developer Group
+Use these links:
+
+- `server/deploy-cloud-run.ps1`
+- `docs/AUTOMATED_DEPLOY.md`
+
+## 13. Bonus Item 3: Google Developer Group
 
 This bonus is not repo work. Do it manually:
 
@@ -359,7 +474,13 @@ This bonus is not repo work. Do it manually:
 3. save the profile URL
 4. include that URL in the Devpost submission if there is a field or mention it in the additional details section
 
-## 12. Final Submission Pass
+Recommended proof path:
+
+- join a GDG on the Google Developer Groups site
+- make your Google Developer Program profile public
+- use that public profile URL as the link you paste into Devpost
+
+## 14. Final Submission Pass
 
 Before pressing submit, verify this exact checklist:
 
@@ -374,18 +495,21 @@ Before pressing submit, verify this exact checklist:
 - GDG profile link copied
 - all links open correctly in an incognito window
 
-## 13. Recommended Final Order From Here
+## 15. Recommended Final Order From Here
 
 1. finish live verification of the app
-2. clean public repo surface if you still want to delete files
-3. deploy or re-verify Cloud Run backend
-4. record cloud proof clip
-5. rehearse demo once or twice
-6. record under-4-minute demo
-7. publish build post
-8. collect GDG profile link
-9. fill Devpost form using `DEVPOST_SUBMISSION.md`
-10. upload repo URL, cloud proof, architecture diagram, demo video, and bonus links
-11. do one last incognito check
-12. submit
+2. clean the public repo surface if you still want to delete files
+3. deploy or re-verify the Cloud Run backend
+4. record the cloud proof clip
+5. refresh `docs/ARCHITECTURE_DIAGRAM.png` from `docs/ARCHITECTURE_DIAGRAM.mmd`
+6. rehearse the demo once or twice
+7. record the under-4-minute demo
+8. publish the build post
+9. collect the GDG profile link
+10. fill the Devpost form using `DEVPOST_SUBMISSION.md`
+11. upload repo URL, cloud proof, architecture diagram, demo video, and bonus links
+12. do one last incognito check
+13. submit
+
+
 
