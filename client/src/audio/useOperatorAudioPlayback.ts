@@ -17,6 +17,7 @@ export type OperatorTurnState = "idle" | "speaking" | "interrupted" | "listening
 export interface OperatorAudioPlaybackState {
   error: string | null;
   interruptPlayback: () => void;
+  stopCurrentPlayback: () => void;
   isInterrupted: boolean;
   isSpeaking: boolean;
   operatorAudioChunkCount: number;
@@ -138,6 +139,12 @@ export function useOperatorAudioPlayback(
     scheduleListeningState();
   }
 
+  function stopCurrentPlayback(): void {
+    playerRef.current?.stopImmediate();
+    setIsInterrupted(true);
+    scheduleListeningState();
+  }
+
   async function handleEnvelope(
     envelope: SessionEnvelope<string>,
   ): Promise<void> {
@@ -189,6 +196,7 @@ export function useOperatorAudioPlayback(
   return {
     error,
     interruptPlayback: () => interruptPlayback(),
+    stopCurrentPlayback,
     isInterrupted,
     isSpeaking: playerState === "speaking",
     operatorAudioChunkCount,

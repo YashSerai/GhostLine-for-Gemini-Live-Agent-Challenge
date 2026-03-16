@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 
 import type {
   SessionConnectionStatus,
@@ -101,7 +101,6 @@ export interface SessionStateSnapshot {
   lastVerifiedItem: string | null;
   microphonePermission: string | null;
   microphoneStreaming: boolean;
-  pendingCallerName: string | null;
   plannedTasks: SessionPlannedTaskEntry[];
   recoveryAttemptCount: number | null;
   recoveryAttemptLimit: number | null;
@@ -154,7 +153,6 @@ const IDLE_STATE: SessionStateSnapshot = {
   lastVerifiedItem: null,
   microphonePermission: null,
   microphoneStreaming: false,
-  pendingCallerName: null,
   plannedTasks: [],
   recoveryAttemptCount: null,
   recoveryAttemptLimit: null,
@@ -551,7 +549,6 @@ export function useSessionState(
         lastVerifiedItem: getString(payload, "lastVerifiedItem"),
         microphonePermission: getString(payload, "microphonePermission"),
         microphoneStreaming: payload.microphoneStreaming === true,
-        pendingCallerName: getString(payload, "pendingCallerName"),
         plannedTasks: Array.isArray(payload.plannedTasks)
           ? payload.plannedTasks
               .map((item) => parsePlannedTaskEntry(item))
@@ -578,5 +575,7 @@ export function useSessionState(
 
   return state;
 }
+
+
 
 

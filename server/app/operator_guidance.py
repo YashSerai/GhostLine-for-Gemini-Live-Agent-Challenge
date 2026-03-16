@@ -1,4 +1,4 @@
-"""Deterministic live operator guidance orchestration for normal mode."""
+﻿"""Deterministic live operator guidance orchestration for normal mode."""
 
 from __future__ import annotations
 
@@ -10,8 +10,6 @@ from .task_helpers import InvalidTaskIdError, get_task_by_id
 
 OperatorGuidanceBeat: TypeAlias = Literal[
     "microphone_request",
-    "mic_confirmed",
-    "name_confirmation",
     "camera_request",
     "room_sweep",
     "calibration_acknowledged",
@@ -63,7 +61,6 @@ class NormalModeOperatorGuidanceOrchestrator:
         self._last_verification_attempt_id: str | None = None
         self._last_case_report_id: str | None = None
         self._last_calibration_captured_at: str | None = None
-        self._last_pending_caller_name: str | None = None
 
     def consume_envelope(
         self,
@@ -100,26 +97,7 @@ class NormalModeOperatorGuidanceOrchestrator:
             beat="microphone_request",
             text=text,
         )
-    def build_mic_confirmed_guidance(self) -> OperatorGuidanceDirective:
-        return OperatorGuidanceDirective(
-            beat="mic_confirmed",
-            text=(
-                "Good, I am receiving your audio. "
-                "Please state your name so I can verify the vocal baseline."
-            ),
-        )
 
-    def build_name_confirmation_guidance(
-        self,
-        caller_name: str | None,
-    ) -> OperatorGuidanceDirective:
-        name = caller_name or "that"
-        return OperatorGuidanceDirective(
-            beat="name_confirmation",
-            text=(
-                f"I heard {name}. If that is correct, say yes. If not, say your name again clearly."
-            ),
-        )
     def build_camera_request_guidance(
         self,
         *,
@@ -223,7 +201,6 @@ class NormalModeOperatorGuidanceOrchestrator:
         browser_mic_permission = _string_or_none(payload.get("browserMicPermission"))
         browser_camera_permission = _string_or_none(payload.get("browserCameraPermission"))
         caller_name = _string_or_none(payload.get("callerName"))
-        pending_caller_name = _string_or_none(payload.get("pendingCallerName"))
 
         if state_name == "microphone_request" and self._last_state != "microphone_request":
             directives.append(
@@ -232,16 +209,6 @@ class NormalModeOperatorGuidanceOrchestrator:
                 )
             )
 
-        if state_name == "name_request" and self._last_state != "name_request":
-            directives.append(self.build_mic_confirmed_guidance())
-
-        if state_name == "name_confirmation" and (
-            self._last_state != "name_confirmation"
-            or pending_caller_name != self._last_pending_caller_name
-        ):
-            directives.append(
-                self.build_name_confirmation_guidance(pending_caller_name)
-            )
 
         if state_name == "camera_request" and self._last_state != "camera_request":
             directives.append(
@@ -284,7 +251,6 @@ class NormalModeOperatorGuidanceOrchestrator:
                 directives.append(closure_directive)
 
         self._last_state = state_name
-        self._last_pending_caller_name = pending_caller_name
         return tuple(directives)
 
     def _build_verification_reaction(
@@ -450,6 +416,12 @@ def _int_or_none(value: Any) -> int | None:
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return None
+
+
+
+
+
+
 
 
 

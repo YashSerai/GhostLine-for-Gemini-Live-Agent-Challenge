@@ -100,6 +100,20 @@ export class StreamedPcmPlayer {
     this.updateState("idle");
   }
 
+
+  stopImmediate(): void {
+    for (const source of this.activeSources) {
+      try {
+        source.stop(0);
+      } catch {
+        // Ignore sources that have already finished.
+      }
+    }
+
+    this.activeSources.clear();
+    this.nextStartTime = this.audioContext?.currentTime ?? 0;
+    this.updateState("idle");
+  }
   reset(): void {
     this.interrupt();
     this.currentPlaybackEpoch = 0;

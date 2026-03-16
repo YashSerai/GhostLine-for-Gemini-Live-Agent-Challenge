@@ -1,4 +1,4 @@
-"""Authoritative full-session state machine for Prompt 36."""
+﻿"""Authoritative full-session state machine for Prompt 36."""
 
 from __future__ import annotations
 
@@ -33,8 +33,6 @@ SessionStateName = Literal[
     "call_connected",
     "consent",
     "microphone_request",
-    "name_request",
-    "name_confirmation",
     "camera_request",
     "room_sweep",
     "calibration",
@@ -73,9 +71,7 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "init": ("call_connected", "ended"),
     "call_connected": ("consent", "ended"),
     "consent": ("microphone_request", "ended"),
-    "microphone_request": ("name_request", "paused", "ended"),
-    "name_request": ("name_confirmation", "paused", "ended"),
-    "name_confirmation": ("name_request", "camera_request", "paused", "ended"),
+    "microphone_request": ("camera_request", "paused", "ended"),
     "camera_request": ("room_sweep", "paused", "ended"),
     "room_sweep": ("camera_request", "task_assigned", "waiting_ready", "paused", "ended"),
     "calibration": ("camera_request", "task_assigned", "paused", "ended"),
@@ -87,9 +83,7 @@ _ALLOWED_TRANSITIONS: dict[SessionStateName, tuple[SessionStateName, ...]] = {
     "swap_pending": ("camera_request", "task_assigned", "waiting_ready", "diagnosis_beat", "completed", "case_report", "paused", "ended"),
     "paused": (
         "microphone_request",
-        "name_request",
-        "name_confirmation",
-        "camera_request",
+            "camera_request",
         "room_sweep",
         "calibration",
         "task_assigned",
@@ -112,9 +106,7 @@ _ALLOWED_SWAP_STATES = frozenset({"task_assigned", "waiting_ready", "recovery_ac
 _ALLOWED_PAUSE_STATES = frozenset(
     {
         "microphone_request",
-        "name_request",
-        "name_confirmation",
-        "camera_request",
+            "camera_request",
         "room_sweep",
         "calibration",
         "task_assigned",
@@ -204,7 +196,6 @@ class SessionStateMachine:
         self.transition_history: list[dict[str, Any]] = []
         self.ended_reason: str | None = None
         self.caller_name: str | None = None
-        self.pending_caller_name: str | None = None
         # AI-observed room features from Gemini vision room scan.
         # When populated, these override keyword-based affordance inference.
         self.ai_observed_affordances: ObservedAffordances | None = None
@@ -262,8 +253,6 @@ class SessionStateMachine:
     async def handle_client_event(self, payload: dict[str, Any]) -> None:
         event = payload.get("event")
         if event == "camera_button_clicked":
-            # Preserve the user action even if camera permission was granted early
-            # and the backend is still finishing the name-confirmation step.
             self.camera_button_clicked = True
             self._maybe_enter_room_sweep("camera_button_clicked")
 
@@ -295,7 +284,7 @@ class SessionStateMachine:
         self.microphone_streaming = payload.get("streaming") is True
 
         if self.microphone_streaming and self.state == "microphone_request":
-            self._transition("name_request", "microphone_ready")
+            self._transition("camera_request", "microphone_ready")
 
         if (
             self.microphone_streaming
@@ -552,7 +541,6 @@ class SessionStateMachine:
             "microphonePermission": self.microphone_permission,
             "browserMicPermission": self.browser_mic_permission,
             "callerName": self.caller_name,
-            "pendingCallerName": self.pending_caller_name,
             "demoNearFailureStatus": self.demo_near_failure_status,
             "demoNearFailureFailureType": self.demo_near_failure_failure_type,
             "demoNearFailureTaskId": self.demo_near_failure_task_id,
@@ -580,23 +568,10 @@ class SessionStateMachine:
         elif speaker == "operator":
             self.turn_status = "speaking"
 
-        if speaker == "user" and self.state == "name_request":
+        if speaker == "user" and self.state in {"camera_request", "room_sweep"}:
             parsed_name = _extract_caller_name(text)
             if parsed_name is not None:
-                self.pending_caller_name = parsed_name
-                self._transition("name_confirmation", "name_candidate_captured")
-        elif speaker == "user" and self.state == "name_confirmation":
-            parsed_name = _extract_caller_name(text)
-            if _is_affirmative_response(text) and self.pending_caller_name is not None:
-                self.caller_name = self.pending_caller_name
-                self.pending_caller_name = None
-                self._transition("camera_request", "name_confirmed")
-                self._maybe_enter_room_sweep("camera_ready")
-            elif parsed_name is not None:
-                self.pending_caller_name = parsed_name
-            elif _is_negative_response(text):
-                self.pending_caller_name = None
-                self._transition("name_request", "name_retry_requested")
+                self.caller_name = parsed_name
         self.transcript_references.append(
             {
                 "at": _utc_now_iso(),
@@ -1077,9 +1052,14 @@ def _infer_positive_affordance(
     return True if _contains_any(lines, phrases) else None
 
 def _is_affirmative_response(text: str) -> bool:
-    normalized = " ".join(text.lower().split())
+    normalized = "".join(
+        ch if (ch.isalpha() or ch.isspace() or ch == "'") else " "
+        for ch in text.lower()
+    )
+    normalized = " ".join(normalized.split())
     prefixes = (
         "yes",
+        "yea",
         "yeah",
         "yep",
         "correct",
@@ -1093,7 +1073,11 @@ def _is_affirmative_response(text: str) -> bool:
 
 
 def _is_negative_response(text: str) -> bool:
-    normalized = " ".join(text.lower().split())
+    normalized = "".join(
+        ch if (ch.isalpha() or ch.isspace() or ch == "'") else " "
+        for ch in text.lower()
+    )
+    normalized = " ".join(normalized.split())
     prefixes = (
         "no",
         "nope",
@@ -1182,6 +1166,12 @@ def _utc_now_iso() -> str:
 
 
 __all__ = ["SessionStateMachine", "SessionStateMachineError"]
+
+
+
+
+
+
 
 
 

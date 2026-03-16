@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { useMicrophoneBridge } from "./audio/useMicrophoneBridge";
 import { useOperatorAudioPlayback } from "./audio/useOperatorAudioPlayback";
 import { AudioSpectrogram } from "./hud/AudioSpectrogram";
@@ -77,7 +77,6 @@ type PermissionStage =
   | "request_microphone"
   | "microphone_requesting"
   | "microphone_denied"
-  | "name_request"
   | "request_camera"
   | "camera_requesting"
   | "camera_denied"
@@ -152,8 +151,14 @@ function getPermissionStage(
     return "awaiting_call";
   }
 
-  if (sessionStateName === "name_request") {
-    return "name_request";
+  if (microphonePermission === "requesting") {
+    return "microphone_requesting";
+  }
+  if (microphonePermission === "denied") {
+    return "microphone_denied";
+  }
+  if (microphonePermission !== "granted" && !isMicStreaming) {
+    return "request_microphone";
   }
 
   if (sessionStateName === "camera_request") {
@@ -170,16 +175,16 @@ function getPermissionStage(
     return "permissions_ready";
   }
 
-  if (microphonePermission === "requesting") {
-    return "microphone_requesting";
+  if (cameraPermission === "requesting") {
+    return "camera_requesting";
   }
-  if (microphonePermission === "denied") {
-    return "microphone_denied";
+  if (cameraPermission === "denied") {
+    return "camera_denied";
   }
-  if (microphonePermission !== "granted" && !isMicStreaming) {
-    return "request_microphone";
+  if (cameraReady) {
+    return "permissions_ready";
   }
-  return "request_microphone";
+  return "request_camera";
 }
 
 function formatPermissionStage(stage: PermissionStage): string {
@@ -191,10 +196,7 @@ function formatPermissionStage(stage: PermissionStage): string {
     case "microphone_requesting":
       return "Microphone Prompt Open";
     case "microphone_denied":
-      return "Microphone Denied";
-    case "name_request":
-      return "Confirm Name";
-    case "request_camera":
+      return "Microphone Denied";    case "request_camera":
       return "Request Camera";
     case "camera_requesting":
       return "Camera Prompt Open";
@@ -290,7 +292,7 @@ function getOperatorPlaceholder(
     connectionStatus === "connecting" ||
     connectionStatus === "reconnecting"
   ) {
-    return "Containment Desk is bringing the line up now. Stay with me. I will request microphone first, then confirm your name, then camera, then one room sweep and calibration still frame.";
+    return "Containment Desk is bringing the line up now. Stay with me. I will request microphone first, then camera, then one room sweep and calibration still frame.";
   }
 
   if (permissionStage === "request_microphone") {
@@ -298,19 +300,15 @@ function getOperatorPlaceholder(
   }
 
   if (permissionStage === "microphone_requesting") {
-    return "The microphone request is open now. Approve it and return to the call. Name confirmation comes next.";
+    return "The microphone request is open now. Approve it and return to the call. Camera access unlocks immediately after that.";
   }
 
   if (permissionStage === "microphone_denied") {
-    return "Microphone access was denied. Retry it now. I need to hear you before I can confirm your name and open camera access.";
-  }
-
-  if (permissionStage === "name_request") {
-    return "Microphone is live. State your name clearly so the operator can confirm who is on the line before opening camera access.";
+    return "Microphone access was denied. Retry it now. I need to hear you before I can open camera access.";
   }
 
   if (permissionStage === "request_camera") {
-    return "Good. I have confirmed microphone access and the caller baseline. Now grant camera access so I can see the surrounding space.";
+    return "Microphone is live. Grant camera access now so I can see the surrounding space. You can state your name while I continue the setup callout.";
   }
 
   if (permissionStage === "camera_requesting") {
@@ -373,37 +371,30 @@ function getPermissionRequestCopy(
     case "awaiting_call":
       return {
         title: "Call Not Started",
-        body: "Start the hotline first. Microphone comes first, then name confirmation, then camera, then one room sweep and one calibration still frame.",
+        body: "Start the hotline first. Microphone comes first, then camera, then one room sweep and one calibration still frame.",
         tone: "pending",
       };
     case "request_microphone":
       return {
         title: "Microphone Request",
-        body: "Grant microphone access first so the line can hear you clearly before the caller baseline and room feed begin.",
+        body: "Grant microphone access first so the line can hear you clearly before the room feed begins.",
         tone: "pending",
       };
     case "microphone_requesting":
       return {
         title: "Awaiting Microphone Permission",
-        body: "Your browser microphone prompt should be open. Approve it, then return to the call. Name confirmation comes next.",
+        body: "Your browser microphone prompt should be open. Approve it, then return to the call. Camera access unlocks next.",
         tone: "pending",
       };
     case "microphone_denied":
       return {
         title: "Microphone Access Denied",
-        body: "Retry microphone access now. The hotline should hear you before it confirms your identity baseline and asks for the room feed.",
+        body: "Retry microphone access now. The hotline should hear you before it asks for the room feed.",
         tone: "warning",
-      };
-    case "name_request":
-      return {
-        title: "Confirm Caller Name",
-        body: "Microphone is live. State your name clearly so the operator can confirm who is on the line before camera access begins.",
-        tone: "pending",
-      };
-    case "request_camera":
+      };    case "request_camera":
       return {
         title: "Camera Request",
-        body: "Name confirmation is complete. Grant camera access now so the Archivist can direct a room sweep, lock calibration, and place the first containment step.",
+        body: "Grant camera access now so the Archivist can direct a room sweep, lock calibration, and place the first containment step. Name capture is no longer a setup blocker.",
         tone: "pending",
       };
     case "camera_requesting":
@@ -429,7 +420,7 @@ function getPermissionRequestCopy(
     default:
       return {
         title: "Call Not Started",
-        body: "Start the hotline first. Microphone comes first, then name confirmation, then camera, then one room sweep and one calibration still frame.",
+        body: "Start the hotline first. Microphone comes first, then camera, then one room sweep and one calibration still frame.",
         tone: "pending",
       };
   }
@@ -1067,7 +1058,7 @@ function App() {
         ? "Retry Microphone Access"
         : "Grant Microphone Access";
     permissionAction = () => {
-      void operatorAudio.preparePlayback();
+      operatorAudio.stopCurrentPlayback();
       void microphone.startMicrophone();
     };
     permissionActionDisabled = !canRequestMicrophone;
@@ -1080,6 +1071,7 @@ function App() {
         ? "Retry Camera Access"
         : "Grant Camera Access";
     permissionAction = () => {
+      operatorAudio.stopCurrentPlayback();
       sendMessage("client_event", { event: "camera_button_clicked" });
       void camera.requestCameraAccess();
     };
@@ -1094,7 +1086,7 @@ function App() {
   ) {
     permissionActionLabel = "Resume Microphone Stream";
     permissionAction = () => {
-      void operatorAudio.preparePlayback();
+      operatorAudio.stopCurrentPlayback();
       void microphone.startMicrophone();
     };
     permissionActionDisabled = !canRequestMicrophone;
@@ -1926,6 +1918,14 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
 
 
 

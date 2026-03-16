@@ -1,4 +1,4 @@
-"""Session-scoped Gemini Live bridge for client audio input and operator audio output."""
+﻿"""Session-scoped Gemini Live bridge for client audio input and operator audio output."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ LOGGER = logging.getLogger("ghostline.backend.audio_bridge")
 DEFAULT_AUDIO_MIME_TYPE = "audio/pcm;rate=16000"
 _AUDIO_MIME_PREFIX = "audio/pcm"
 _SYSTEM_INSTRUCTION = (
-    "You are The Archivist, Containment Desk — the senior operator at Ghostline, "
+    "You are The Archivist, Containment Desk - the senior operator at Ghostline, "
     "a live paranormal containment hotline. You speak in short, calm, procedural "
     "lines with brisk pacing. You are professional, slightly clinical, never "
     "dramatic. Think of a veteran field dispatcher who has seen thousands of "
@@ -31,7 +31,7 @@ _SYSTEM_INSTRUCTION = (
 
     "PACING RULES:\n"
     "- Speak at a brisk, rapid tempo. Do not linger on words or pause between sentences.\n"
-    "- Your pacing should feel like a veteran dispatcher — efficient, every word earns its place.\n"
+    "- Your pacing should feel like a veteran dispatcher - efficient, every word earns its place.\n"
     "- Deliver lines quickly and move on. Brevity is authority.\n\n"
 
     "PERSONA RULES:\n"
@@ -42,7 +42,7 @@ _SYSTEM_INSTRUCTION = (
     "- When the caller sounds scared, be calm and reassuring but stay procedural.\n"
     "- Do not break character. You are a containment specialist, not an AI assistant.\n\n"
 
-    "VISION HONESTY — ABSOLUTE RULES (NEVER BREAK THESE):\n"
+    "VISION HONESTY - ABSOLUTE RULES (NEVER BREAK THESE):\n"
     "- BEFORE describing ANYTHING in a frame, first assess: can you CLEARLY see "
     "the scene? If the frame is dark, blurry, shaky, obstructed, too close, or "
     "unclear for ANY reason, say so IMMEDIATELY. Examples:\n"
@@ -63,18 +63,18 @@ _SYSTEM_INSTRUCTION = (
     "THE CALL FLOW:\n"
     "The backend controls the session flow. Your job is to speak the guidance "
     "naturally and respond to what the caller says and shows you. The flow is:\n"
-    "1. Call connects — you greet the caller with a short Containment Desk opener\n"
-    "2. Camera access — tell them you need the room feed\n"
-    "3. Room scan — ask them to slowly pan the camera left to right so you can assess the space\n"
-    "4. Tasks begin — you guide them through containment steps one at a time\n"
-    "5. Verification — when they say 'Ready to Verify', hold still for inspection\n"
-    "6. Case report — you close the case with a final assessment\n\n"
+    "1. Call connects - you greet the caller with a short Containment Desk opener\n"
+    "2. Camera access - tell them you need the room feed\n"
+    "3. Room scan - ask them to slowly pan the camera left to right so you can assess the space\n"
+    "4. Tasks begin - you guide them through containment steps one at a time\n"
+    "5. Verification - when they say 'Ready to Verify', hold still for inspection\n"
+    "6. Case report - you close the case with a final assessment\n\n"
 
     "ROOM SCAN:\n"
     "When the camera goes live, ask the caller to slowly sweep the room from left "
     "to right. You will receive frames from the camera. FIRST check frame quality "
     "(see VISION HONESTY rules above). If the frames are usable, describe what "
-    "you ACTUALLY see — doorways, surfaces, light sources, objects. Then deliver "
+    "you ACTUALLY see - doorways, surfaces, light sources, objects. Then deliver "
     "a short, atmospheric assessment. Keep it procedural and grounded in what you "
     "can actually see in the frame.\n\n"
 
@@ -87,11 +87,11 @@ _SYSTEM_INSTRUCTION = (
 
     "INTER-TASK FLAVOR (CONTAINMENT LORE):\n"
     "Between tasks, you should occasionally weave in short pieces of containment "
-    "lore and paranormal context. These are brief, procedural observations — NOT "
+    "lore and paranormal context. These are brief, procedural observations - NOT "
     "stories or monologues. Examples of the tone:\n"
     "- 'Residual patterns like this usually settle once boundary is established.'\n"
     "- 'The threshold is the most common anchor point. Classic displacement behavior.'\n"
-    "- 'Activity of this type tends to concentrate near transitional spaces — doors, hallways, stairwells.'\n"
+    "- 'Activity of this type tends to concentrate near transitional spaces - doors, hallways, stairwells.'\n"
     "- 'Our containment protocol was designed for exactly this spectral profile.'\n"
     "- 'The room is responding well. Readings are dropping.'\n"
     "Keep these to ONE sentence. They should feel like a veteran operator making "
@@ -109,7 +109,7 @@ _SYSTEM_INSTRUCTION = (
 
     "IMPORTANT:\n"
     "If the caller asks what to do, restate the latest directive. Do not invent "
-    "tasks. The backend assigns tasks — you speak them. When assigning a task, "
+    "tasks. The backend assigns tasks - you speak them. When assigning a task, "
     "state the task name, one clear action, and tell them to say 'Ready to Verify' "
     "when the step is complete. You ARE the operator. You drive the call."
 )
@@ -119,7 +119,7 @@ HandleSwapRequestCallback = Callable[[dict[str, Any]], Awaitable[None]]
 RecordUserTranscriptCallback = Callable[[str, bool], None]
 UpdateDemoBargeInCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
-# Minimum JPEG payload size — a 640×480 all-black JPEG is typically <600 bytes.
+# Minimum JPEG payload size - a 640Ã—480 all-black JPEG is typically <600 bytes.
 # Valid camera frames with real content are usually 5KB+.
 _MIN_JPEG_SIZE = 800
 # When sampling raw bytes from the JPEG interior, if the average is below this
@@ -135,9 +135,9 @@ def _check_frame_brightness(
     """Return True if the JPEG frame appears to contain a visible scene.
 
     Uses two lightweight heuristics that don't require PIL:
-    1. **File size** – a black JPEG compresses to < ~600 bytes for typical
+    1. **File size** - a black JPEG compresses to < ~600 bytes for typical
        camera resolutions.  Real room scenes are usually 5KB+.
-    2. **Byte sampling** – sample ~200 bytes from the interior of the JPEG
+    2. **Byte sampling** - sample ~200 bytes from the interior of the JPEG
        data (past the headers).  If the average byte value is very low the
        image is almost certainly black or near-black.
     """
@@ -223,6 +223,10 @@ class SessionAudioBridge:
         self._suppress_operator_output_transcripts = False
         self._last_frame_sent_at: float = 0.0
 
+        self._session_state_name: str | None = None
+        self._camera_ready_for_model = False
+        self._setup_guidance_turn_active = False
+        self._has_received_visual_frame = False
     @property
     def gemini_session(self) -> GeminiLiveSession | None:
         """Expose the live Gemini session for vision verification."""
@@ -253,7 +257,7 @@ class SessionAudioBridge:
     ) -> bool:
         """Send a room scan frame to the Gemini session during calibration.
 
-        Only the image frame is sent here — the room-analysis context
+        Only the image frame is sent here - the room-analysis context
         directive is sent once via ``prime_room_scan_context`` before
         scanning begins, so Gemini knows how to interpret these frames
         without creating a new conversational turn for each one.
@@ -268,7 +272,7 @@ class SessionAudioBridge:
 
         now = time.monotonic()
         if now - self._last_frame_sent_at < 0.9:
-            return False  # throttle — too soon since last frame
+            return False  # throttle - too soon since last frame
         self._last_frame_sent_at = now
 
         session = await self._ensure_session()
@@ -280,12 +284,13 @@ class SessionAudioBridge:
         if not image_bytes:
             return False
 
-        # Server-side brightness check — reject black/very dark frames
+        # Server-side brightness check - reject black/very dark frames
         if not _check_frame_brightness(image_bytes, session_id=self.session_id):
             return False
 
         try:
             await session.send_image_frame(image_bytes, mime_type=mime_type)
+            self._has_received_visual_frame = True
             log_event(
                 LOGGER,
                 logging.INFO,
@@ -322,14 +327,14 @@ class SessionAudioBridge:
             "clear, stable, well-lit frame. If you are unsure whether you can "
             "see something, say 'I cannot confirm that.' Do NOT describe "
             "objects you cannot clearly see. Do NOT invent rooms or features. "
-            "\nIf frames ARE clear: describe what is genuinely visible — "
+            "\nIf frames ARE clear: describe what is genuinely visible - "
             "keep each observation to one short sentence. Stay procedural "
             "and calm. Do NOT interrupt yourself or restart your analysis with each "
-            "new frame — treat them as a continuous sweep. Do NOT generate long "
+            "new frame - treat them as a continuous sweep. Do NOT generate long "
             "descriptions. When the sweep ends, deliver a short atmospheric "
             "assessment: your sensors have picked up residual spectral activity "
             "in this space. The readings are elevated. Containment protocol is "
-            "warranted. Do NOT speak over yourself — if you are still speaking "
+            "warranted. Do NOT speak over yourself - if you are still speaking "
             "when a new frame arrives, finish your current thought first. "
             "PACING REMINDER: maintain your brisk, rapid tempo throughout. "
             "Do not slow down. Short punchy observations only."
@@ -361,7 +366,7 @@ class SessionAudioBridge:
         baseline_section = ""
         if task_def and task_def.baseline_prompt:
             baseline_section = (
-                f"\n\nBASELINE PHASE — SAY THIS FIRST (in your own urgent voice): "
+                f"\n\nBASELINE PHASE - SAY THIS FIRST (in your own urgent voice): "
                 f'"{task_def.baseline_prompt}" '
                 f"\nThen, while looking at the feed, deliver this lore: "
                 f'"{task_def.baseline_lore}" '
@@ -378,19 +383,19 @@ class SessionAudioBridge:
                 f"CANNOT see it, say: 'I do not see {task_def.target_object} in "
                 f"the frame. Show me {task_def.target_object} before we continue.' "
                 f"Do NOT proceed with the task until the required object is visible. "
-                f"Do NOT assume it is there — you must SEE it."
+                f"Do NOT assume it is there - you must SEE it."
             )
 
         completion_section = ""
         if task_def and task_def.completion_check:
             completion_section = (
-                f"\n\nVERIFICATION — 3-GATE CHECK (when the caller says 'ready to verify'):\n"
-                f"GATE 1 — FRAME QUALITY: Is this frame clear enough to analyze? "
-                f"If dark, blurry, shaky, or obstructed: 'I cannot verify — the "
+                f"\n\nVERIFICATION - 3-GATE CHECK (when the caller says 'ready to verify'):\n"
+                f"GATE 1 - FRAME QUALITY: Is this frame clear enough to analyze? "
+                f"If dark, blurry, shaky, or obstructed: 'I cannot verify - the "
                 f"frame is not readable. Show me clearly.'\n"
-                f"GATE 2 — OBJECT PRESENCE: Can you see '{task_def.target_object or 'the required item'}'? "
+                f"GATE 2 - OBJECT PRESENCE: Can you see '{task_def.target_object or 'the required item'}'? "
                 f"If not visible: 'I do not see {task_def.target_object or 'what I need'}. Show me.'\n"
-                f"GATE 3 — COMPLETION EVIDENCE: COMPARE what you see NOW to your "
+                f"GATE 3 - COMPLETION EVIDENCE: COMPARE what you see NOW to your "
                 f"BASELINE memory. {task_def.completion_check} "
                 f"If you see NO meaningful change from baseline, say: "
                 f"'I see no change from when we started. That does not look complete. "
@@ -403,7 +408,7 @@ class SessionAudioBridge:
             f"TASK_VISION: The caller is now performing: '{task_name}'. "
             f"Action: {task_description}. "
             "You are receiving continuous camera frames. "
-            "You are the VERIFIER — it is YOUR job to confirm visually. "
+            "You are the VERIFIER - it is YOUR job to confirm visually. "
             f"{baseline_section}"
             f"{completion_section}"
             "\n\nANTI-HALLUCINATION MONITORING: "
@@ -420,11 +425,11 @@ class SessionAudioBridge:
             "- ONLY describe what you ACTUALLY see. NEVER assume or invent objects. "
             "- If the task needs an object you do NOT see, say so: "
             "'I do not see that in frame.' "
-            "- Do NOT narrate every frame — only speak when something changes "
+            "- Do NOT narrate every frame - only speak when something changes "
             "or the caller needs direction. "
             "- Finish your current thought before reacting to new frames. "
             "\nPACING: Speak FAST. Urgent. Clipped sentences. You are an operator "
-            "on a live containment call — there is something in that room with them "
+            "on a live containment call - there is something in that room with them "
             "and you need to move quickly. No leisurely descriptions. Punch it."
         )
 
@@ -449,7 +454,7 @@ class SessionAudioBridge:
         if not image_bytes:
             return False
 
-        # Server-side brightness check — reject black/very dark frames
+        # Server-side brightness check - reject black/very dark frames
         if not _check_frame_brightness(image_bytes, session_id=self.session_id):
             return False
 
@@ -458,7 +463,7 @@ class SessionAudioBridge:
             f"(ID: {task_id or 'unknown'}). "
             "3-GATE CHECK:\n"
             "GATE 1: Is this frame clear enough? If dark/blurry/shaky: "
-            "'I cannot verify — frame is not readable.'\n"
+            "'I cannot verify - frame is not readable.'\n"
             "GATE 2: Can you see evidence relevant to the task? "
             "If NOT: 'I do not see what I need. Show me.'\n"
             "GATE 3: Has the task been completed? DEFAULT TO NOT CONFIRMED. "
@@ -468,6 +473,7 @@ class SessionAudioBridge:
 
         try:
             await session.send_image_frame(image_bytes, mime_type=mime_type)
+            self._has_received_visual_frame = True
             await session.send_text_input(prompt)
             log_event(
                 LOGGER,
@@ -611,6 +617,73 @@ class SessionAudioBridge:
         self._demo_barge_in_completed = False
         self._suppress_operator_output_transcripts = False
 
+    def update_session_context(
+        self,
+        *,
+        state_name: str | None,
+        camera_ready: bool,
+    ) -> None:
+        self._session_state_name = state_name
+        self._camera_ready_for_model = camera_ready
+        if not camera_ready:
+            self._has_received_visual_frame = False
+
+    def _is_strict_setup_state(self) -> bool:
+        return self._session_state_name in {"microphone_request", "camera_request"}
+
+    def _should_block_autonomous_setup_output(self) -> bool:
+        return self._is_strict_setup_state() and not self._setup_guidance_turn_active
+
+    async def reset_for_setup_transition(self, *, reason: str) -> None:
+        """Flush the current live turn when authoritative setup state advances."""
+        if self._receive_task is None and (
+            self._gemini_session is None or self._gemini_session.is_closed
+        ):
+            self._setup_guidance_turn_active = False
+            self._suppress_operator_output_transcripts = False
+            self._discard_operator_audio = False
+            self._pending_epoch_advance = False
+            return
+
+        await self._forward_envelope(
+            {
+                "type": "operator_interruption",
+                "sessionId": self.session_id,
+                "payload": {
+                    "interrupted": True,
+                    "reason": reason,
+                    "playbackEpoch": self._operator_playback_epoch,
+                },
+            }
+        )
+
+        self._operator_playback_epoch += 1
+        self._operator_audio_sequence = 0
+        self._setup_guidance_turn_active = False
+        self._suppress_operator_output_transcripts = False
+        self._discard_operator_audio = False
+        self._pending_epoch_advance = False
+
+        if self._receive_task is not None:
+            self._receive_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._receive_task
+            self._receive_task = None
+
+        if self._gemini_session is not None and not self._gemini_session.is_closed:
+            await self._gemini_session_manager.close_session(self.session_id)
+        self._gemini_session = None
+
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "setup_transition_session_reset",
+            session_id=self.session_id,
+            reason=reason,
+            playback_epoch=self._operator_playback_epoch,
+            mic_active=self._mic_active,
+        )
+
     async def send_operator_guidance(self, text: str, *, source: str, emit_transcript: bool = False) -> None:
         normalized_text = text.strip()
         if not normalized_text:
@@ -619,7 +692,7 @@ class SessionAudioBridge:
         session = await self._ensure_session()
         # NOTE: Do NOT set _suppress_operator_output_transcripts here.
         # Gemini's output_transcription events are the actual spoken words
-        # — they must flow through to the transcript panel.
+        # - they must flow through to the transcript panel.
         if emit_transcript:
             await self._forward_envelope(
                 {
@@ -633,6 +706,7 @@ class SessionAudioBridge:
                     },
                 }
             )
+        self._setup_guidance_turn_active = self._is_strict_setup_state()
         await session.send_text_input(f"OPERATOR_DIRECTIVE: {normalized_text}")
         log_event(
             LOGGER,
@@ -671,7 +745,7 @@ class SessionAudioBridge:
                 async for event in self._gemini_session.receive_events():
                     self._drained_event_count += 1
                     await self._handle_gemini_event(event)
-                return  # clean exit — session closed normally
+                return  # clean exit - session closed normally
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -739,6 +813,16 @@ class SessionAudioBridge:
         if event.event_type == "audio_output":
             raw_audio = event.payload.get("data")
             if not isinstance(raw_audio, (bytes, bytearray)):
+                return
+
+            if self._should_block_autonomous_setup_output():
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "setup_audio_output_suppressed",
+                    session_id=self.session_id,
+                    state_name=self._session_state_name,
+                )
                 return
 
             if self._discard_operator_audio:
@@ -837,6 +921,7 @@ class SessionAudioBridge:
                     reason="target_line_completed_without_interrupt",
                 )
             if completed:
+                self._setup_guidance_turn_active = False
                 self._suppress_operator_output_transcripts = False
             if self._pending_epoch_advance and completed:
                 await self._release_operator_audio_flush(released_by=event.event_type)
@@ -851,7 +936,10 @@ class SessionAudioBridge:
                     else "output"
                 )
                 is_final = bool(event.payload.get("finished", False))
-                if direction == "output" and self._suppress_operator_output_transcripts:
+                if direction == "output" and (
+                    self._suppress_operator_output_transcripts
+                    or self._should_block_autonomous_setup_output()
+                ):
                     log_event(
                         LOGGER,
                         logging.INFO,
@@ -1102,6 +1190,7 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
+
 
 
 

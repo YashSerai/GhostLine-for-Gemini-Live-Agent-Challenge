@@ -549,5 +549,5 @@ def _word_count(text: str) -> int:
 
 
 def _normalize_text(text: str) -> str:
-    return " ".join(_WORD_RE.findall(text.lower().replace("’", "'")))
+    return " ".join(_WORD_RE.findall(text.lower().replace("\u2019", "'")))
 

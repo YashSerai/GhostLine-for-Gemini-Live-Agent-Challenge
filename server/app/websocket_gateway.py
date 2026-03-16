@@ -1,4 +1,4 @@
-"""WebSocket gateway for client session traffic and backend session state."""
+﻿"""WebSocket gateway for client session traffic and backend session state."""
 
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ from .demo_dialogue import (
     DEMO_FINAL_CLOSURE_LINE,
     DEMO_OPENER_LINE_GRANTED,
     DEMO_OPENER_LINE_PROMPT,
-    DEMO_MIC_CONFIRMED_LINE,
     DEMO_ROOM_SCAN_LINE,
     DEMO_ROOM_SCAN_ASSESSMENT_LINE,
     build_demo_task_assignment_line,
@@ -225,7 +224,6 @@ def register_websocket_gateway(app: FastAPI) -> None:
         demo_last_announced_task_id: str | None = None
         demo_last_announced_state: str | None = None
         demo_opener_sent = False
-        demo_mic_confirmed_sent = False
         demo_camera_request_sent = False
         demo_room_scan_sent = False
         demo_calibration_sent = False
@@ -276,6 +274,15 @@ def register_websocket_gateway(app: FastAPI) -> None:
             ):
                 cloud_proof_registry.observe_snapshot(session_id, payload)
             await manager.send_json(session_id, message)
+            if (
+                bridge is not None
+                and message.get("type") == "session_state"
+                and isinstance(payload, dict)
+            ):
+                bridge.update_session_context(
+                    state_name=payload.get("state") if isinstance(payload.get("state"), str) else None,
+                    camera_ready=payload.get("cameraReady") is True,
+                )
             if guidance_transcript is not None and bridge is not None:
                 guidance_text, guidance_source = guidance_transcript
                 await bridge.send_operator_guidance(
@@ -412,7 +419,6 @@ def register_websocket_gateway(app: FastAPI) -> None:
             nonlocal demo_last_announced_task_id
             nonlocal demo_last_announced_state
             nonlocal demo_opener_sent
-            nonlocal demo_mic_confirmed_sent
             nonlocal demo_camera_request_sent
             nonlocal demo_room_scan_sent
             nonlocal demo_calibration_sent
@@ -479,10 +485,6 @@ def register_websocket_gateway(app: FastAPI) -> None:
                     else DEMO_OPENER_LINE_PROMPT
                 )
                 await emit_demo_guidance(opener_line)
-
-            if state_name == "name_request" and not demo_mic_confirmed_sent:
-                demo_mic_confirmed_sent = True
-                await emit_demo_guidance(DEMO_MIC_CONFIRMED_LINE)
 
             if state_name == "camera_request" and not demo_camera_request_sent:
                 demo_camera_request_sent = True
@@ -987,6 +989,13 @@ def register_websocket_gateway(app: FastAPI) -> None:
                 reason=disconnect_reason,
                 active_connections=manager.active_count,
             )
+
+
+
+
+
+
+
 
 
 
