@@ -16,16 +16,15 @@ Demo Mode is the reliability path for recorded judging. It is not a different pr
 - fixed room-scan assessment line
 - fixed diagnosis question and interpretation beat
 - fixed barge-in phrase target
-- fixed near-failure on `T2`
 - demo reset button in the client
 
+## Important Verification Note
+
+Demo Mode no longer forces a failed verification or scripted recovery outcome.
+
+If you want to show recovery during a recording, create it naturally by doing the task incorrectly on purpose, then retrying after the operator rejects it.
+
 ## Controlled Demo Beats
-
-### Near-Failure
-
-- task: `T2`
-- expected failure type: `boundary_not_sealed`
-- intended effect: first verify fails honestly, second verify succeeds after correction
 
 ### Barge-In
 
@@ -38,6 +37,7 @@ Demo Mode is the reliability path for recorded judging. It is not a different pr
 - it does not claim that every line is unscripted
 - it does not replace the real verification pipeline
 - it does not add a separate hidden game system outside the normal call flow
+- it does not force verification failures behind the scenes
 
 ## Judge-Facing Reference
 

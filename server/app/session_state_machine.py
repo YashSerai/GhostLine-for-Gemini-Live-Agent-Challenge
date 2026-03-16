@@ -1,4 +1,4 @@
-﻿"""Authoritative full-session state machine for Prompt 36."""
+"""Authoritative full-session state machine for Prompt 36."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any, Literal, Protocol
 
 from .case_report import build_case_report_artifact
 from .demo_barge_in import DEMO_BARGE_IN_SCRIPT
-from .demo_recovery import DEMO_NEAR_FAILURE_SCRIPT
+
 from .demo_mode import DEMO_MODE_PATH_MODE, build_demo_protocol_plan
 from .capability_profile import (
     ObservedAffordances,
@@ -50,7 +50,7 @@ SessionStateName = Literal[
 TurnStatus = Literal["idle", "speaking", "listening", "interrupted"]
 PlanningMode = Literal["normal", "demo"]
 DemoBargeInStatus = Literal["idle", "armed", "triggered", "restated"]
-DemoNearFailureStatus = Literal["idle", "failed_once", "recovered"]
+
 
 
 class SessionPersistenceStore(Protocol):
@@ -174,13 +174,6 @@ class SessionStateMachine:
             DEMO_BARGE_IN_SCRIPT.trigger_phrase if demo_mode_enabled else None
         )
         self.demo_barge_in_matched_transcript: str | None = None
-        self.demo_near_failure_status: DemoNearFailureStatus | None = "idle" if demo_mode_enabled else None
-        self.demo_near_failure_failure_type: str | None = (
-            DEMO_NEAR_FAILURE_SCRIPT.failure_type if demo_mode_enabled else None
-        )
-        self.demo_near_failure_task_id: str | None = (
-            DEMO_NEAR_FAILURE_SCRIPT.task_id if demo_mode_enabled else None
-        )
         self.camera_ready = False
         self.camera_button_clicked = False
         self.camera_permission: str = "idle"
@@ -269,13 +262,6 @@ class SessionStateMachine:
         self.demo_barge_in_target_line = DEMO_BARGE_IN_SCRIPT.target_line if enabled else None
         self.demo_barge_in_trigger_phrase = DEMO_BARGE_IN_SCRIPT.trigger_phrase if enabled else None
         self.demo_barge_in_matched_transcript = None
-        self.demo_near_failure_status = "idle" if enabled else None
-        self.demo_near_failure_failure_type = (
-            DEMO_NEAR_FAILURE_SCRIPT.failure_type if enabled else None
-        )
-        self.demo_near_failure_task_id = (
-            DEMO_NEAR_FAILURE_SCRIPT.task_id if enabled else None
-        )
 
     async def handle_mic_status(self, payload: dict[str, Any]) -> None:
         permission = payload.get("permission")
@@ -541,9 +527,6 @@ class SessionStateMachine:
             "microphonePermission": self.microphone_permission,
             "browserMicPermission": self.browser_mic_permission,
             "callerName": self.caller_name,
-            "demoNearFailureStatus": self.demo_near_failure_status,
-            "demoNearFailureFailureType": self.demo_near_failure_failure_type,
-            "demoNearFailureTaskId": self.demo_near_failure_task_id,
             "transcriptReferences": self.transcript_references[-_MAX_HISTORY:],
             "transitionHistory": self.transition_history[-_MAX_HISTORY:],
             "allowedActions": self._build_allowed_actions(),
@@ -600,19 +583,6 @@ class SessionStateMachine:
         self.recovery_attempt_count = _int_or_none(payload.get("recoveryAttemptCount"))
         self.recovery_attempt_limit = _int_or_none(payload.get("recoveryAttemptLimit"))
         self.recovery_reroute_required = payload.get("recoveryRerouteRequired") is True
-        next_demo_near_failure_status = _string_or_none(payload.get("demoNearFailureStatus"))
-        next_demo_near_failure_failure_type = _string_or_none(payload.get("demoNearFailureFailureType"))
-        next_demo_near_failure_task_id = _string_or_none(payload.get("demoNearFailureTaskId"))
-        if self.demo_near_failure_status != next_demo_near_failure_status:
-            self.demo_near_failure_status = next_demo_near_failure_status
-            self._log_cloud_proof_event(
-                "demo_near_failure_status_changed",
-                demo_near_failure_status=next_demo_near_failure_status,
-                demo_near_failure_task_id=next_demo_near_failure_task_id,
-                demo_near_failure_failure_type=next_demo_near_failure_failure_type,
-            )
-        self.demo_near_failure_failure_type = next_demo_near_failure_failure_type
-        self.demo_near_failure_task_id = next_demo_near_failure_task_id
         self.verification_history.append(
             {
                 "at": _utc_now_iso(),
@@ -1166,44 +1136,3 @@ def _utc_now_iso() -> str:
 
 
 __all__ = ["SessionStateMachine", "SessionStateMachineError"]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

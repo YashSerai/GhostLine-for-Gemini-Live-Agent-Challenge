@@ -154,6 +154,15 @@ function parseTaskContext(
   return value as VerificationTaskContext;
 }
 
+function getTaskContextId(
+  taskContext: VerificationTaskContext | null,
+): string | null {
+  const taskId = taskContext?.taskId;
+  return typeof taskId === "string" && taskId.trim().length > 0
+    ? taskId.trim()
+    : null;
+}
+
 function parseSubstituteTaskSuggestion(
   value: unknown,
 ): VerificationSubstituteTaskSuggestion | null {
@@ -486,6 +495,21 @@ export function useVerificationResultState(
 
   useEffect(() => {
     return subscribeToEnvelopes((envelope) => {
+      if (envelope.type === "session_state") {
+        const nextTaskContext = parseTaskContext(envelope.payload.currentTaskContext);
+        const nextTaskId = getTaskContextId(nextTaskContext);
+
+        setState((currentState) => {
+          const currentTaskId = getTaskContextId(currentState.taskContext);
+          if (nextTaskId === null || nextTaskId === currentTaskId) {
+            return currentState;
+          }
+
+          return IDLE_RESULT_STATE;
+        });
+        return;
+      }
+
       if (envelope.type === "verification_state") {
         const payload = parseVerificationStatePayload(envelope.payload);
         if (payload === null) {
@@ -561,4 +585,5 @@ export function useVerificationResultState(
 
   return state;
 }
+
 

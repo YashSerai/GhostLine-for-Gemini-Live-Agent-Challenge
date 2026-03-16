@@ -16,11 +16,7 @@ from .capability_profile import (
     build_capability_profile,
 )
 from .demo_dialogue import DEMO_RECOVERY_LINE
-from .demo_recovery import (
-    DEMO_NEAR_FAILURE_SCRIPT,
-    DemoNearFailureStatus,
-    matches_demo_near_failure_task,
-)
+
 from .logging_utils import log_event
 from .recovery_ladder import RecoveryDirective, VerificationRecoveryLadder
 from .verification_engine import (
@@ -119,9 +115,7 @@ class SessionVerificationFlow:
         self._microphone_streaming = False
         self._verification_engine = verification_engine
         self._demo_mode_enabled = demo_mode_enabled
-        self._demo_near_failure_status: DemoNearFailureStatus | None = (
-            "idle" if demo_mode_enabled else None
-        )
+
         self._recent_user_transcripts: list[str] = []
         self._recovery_ladder = VerificationRecoveryLadder()
         self._task_visual_context: dict[str, TaskVisualContext] = {}
@@ -138,7 +132,6 @@ class SessionVerificationFlow:
 
     def set_demo_mode_enabled(self, enabled: bool) -> None:
         self._demo_mode_enabled = enabled
-        self._demo_near_failure_status = "idle" if enabled else None
 
     def record_user_transcript(self, text: str, is_final: bool) -> None:
         if not is_final:
@@ -445,12 +438,10 @@ class SessionVerificationFlow:
             ),
         )
 
-        decision = self._build_demo_mode_override(attempt)
-        if decision is None:
-            try:
-                decision = await self._verification_engine.evaluate(verification_context)
-            except VerificationEngineError as exc:
-                raise VerificationFlowError(str(exc)) from exc
+        try:
+            decision = await self._verification_engine.evaluate(verification_context)
+        except VerificationEngineError as exc:
+            raise VerificationFlowError(str(exc)) from exc
 
         await self._forward_result(
             attempt=attempt,
@@ -548,17 +539,6 @@ class SessionVerificationFlow:
                         "reasons": capability_profile.environment.reasons,
                     },
                     "taskContext": attempt.task_context,
-                    "demoNearFailureStatus": self._demo_near_failure_status,
-                    "demoNearFailureFailureType": (
-                        DEMO_NEAR_FAILURE_SCRIPT.failure_type
-                        if self._demo_mode_enabled
-                        else None
-                    ),
-                    "demoNearFailureTaskId": (
-                        DEMO_NEAR_FAILURE_SCRIPT.task_id
-                        if self._demo_mode_enabled
-                        else None
-                    ),
                     **(
                         recovery_directive.to_payload()
                         if recovery_directive is not None
@@ -575,70 +555,7 @@ class SessionVerificationFlow:
             )
 
 
-    def _build_demo_mode_override(
-        self,
-        attempt: VerificationAttempt,
-    ) -> VerificationDecision | None:
-        if not self._demo_mode_enabled:
-            return None
-        if not matches_demo_near_failure_task(attempt.task_context):
-            return None
-        if self._demo_near_failure_status == "recovered":
-            return None
 
-        task_name = attempt.task_context.get("taskName")
-        if not isinstance(task_name, str) or not task_name.strip():
-            task_name = "Increase Illumination"
-
-        if self._demo_near_failure_status == "idle":
-            self._demo_near_failure_status = "failed_once"
-            log_event(
-                LOGGER,
-                logging.INFO,
-                "demo_near_failure_triggered",
-                session_id=self.session_id,
-                verification_task_id=DEMO_NEAR_FAILURE_SCRIPT.task_id,
-                failure_type=DEMO_NEAR_FAILURE_SCRIPT.failure_type,
-                verification_attempt_id=attempt.attempt_id,
-            )
-            return VerificationDecision(
-                block_reason=DEMO_NEAR_FAILURE_SCRIPT.failure_block_reason,
-                confidence_band="low",
-                is_mock=False,
-                last_verified_item=None,
-                mock_label=None,
-                notes=(
-                    "Demo Mode Prompt 46: controlled first verification failure for the rehearsed recovery beat."
-                ),
-                reason=DEMO_NEAR_FAILURE_SCRIPT.failure_reason,
-                status="unconfirmed",
-            )
-
-        if self._demo_near_failure_status == "failed_once":
-            self._demo_near_failure_status = "recovered"
-            log_event(
-                LOGGER,
-                logging.INFO,
-                "demo_near_failure_recovered",
-                session_id=self.session_id,
-                verification_task_id=DEMO_NEAR_FAILURE_SCRIPT.task_id,
-                failure_type=DEMO_NEAR_FAILURE_SCRIPT.failure_type,
-                verification_attempt_id=attempt.attempt_id,
-            )
-            return VerificationDecision(
-                block_reason=None,
-                confidence_band="medium",
-                is_mock=False,
-                last_verified_item=task_name,
-                mock_label=None,
-                notes=(
-                    "Demo Mode Prompt 46: controlled recovery beat resolved on the second scripted verification attempt."
-                ),
-                reason=DEMO_NEAR_FAILURE_SCRIPT.success_reason,
-                status="confirmed",
-            )
-
-        return None
 
 def _build_task_context(raw_value: Any) -> dict[str, Any]:
     task_context = dict(_TEMPORARY_UNRESOLVED_TASK_CONTEXT)
@@ -1017,27 +934,3 @@ __all__ = [
     "SessionVerificationFlow",
     "VerificationFlowError",
 ]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

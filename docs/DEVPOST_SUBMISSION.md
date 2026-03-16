@@ -35,9 +35,9 @@ Demo Mode exists for judged reliability.
 It keeps the same core flow, but constrains the run to:
 
 - fixed task order: `T2 -> T5 -> T14 -> T7`
-- one controlled near-failure on `T2`
 - one controlled diagnosis beat
 - one controlled barge-in phrase
+- optional natural recovery if the caller intentionally fails a step on camera
 
 ## Technology Stack
 

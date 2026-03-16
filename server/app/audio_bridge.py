@@ -388,16 +388,17 @@ class SessionAudioBridge:
                 f"BASELINE memory. {task_def.completion_check} "
                 f"If you see NO meaningful change from baseline, say: "
                 f"'I see no change from when we started. That does not look complete. "
-                f"Show me.' "
-                f"Only confirm if the evidence is OBVIOUS and UNMISTAKABLE: "
-                f"'Confirmed. I can see the difference. Task complete. Moving on.'"
+                f"Show me.' ""If the change looks obvious, do NOT announce completion or move to "
+                "the next task. Instead say: 'That looks ready for verification. Hold "
+                "still and say Ready to Verify.' Only the formal Ready-to-Verify path "
+                "can confirm completion and advance the session."
             )
 
         await self.send_context_directive(
             f"TASK_VISION: The caller is now performing: '{task_name}'. "
             f"Action: {task_description}. "
             "You are receiving continuous camera frames. "
-            "You are the VERIFIER - it is YOUR job to confirm visually. "
+            "You are the live visual coach, not the authoritative progression engine. "
             f"{baseline_section}"
             f"{completion_section}"
             "\n\nANTI-HALLUCINATION MONITORING: "
@@ -410,6 +411,8 @@ class SessionAudioBridge:
             "- If they seem idle for several frames: 'I see no movement. Begin now.' "
             "- If they claim something you CANNOT see: 'I do not see that. Show me.' "
             "- If the task target leaves frame, say exactly what is missing: 'I cannot see the door.' 'I cannot see the surface.' 'I cannot see the mirror.' "
+            "- If you see probable completion: say it looks ready for verification and tell them to say Ready to Verify. "
+            "- Never say 'task complete', 'confirmed', or 'moving on' from continuous task vision alone. "
             "- If you see progress: One short acknowledgment, then silence. "
             "- ONLY describe what you ACTUALLY see. NEVER assume or invent objects. "
             "- If the task needs an object you do NOT see, say so: "
@@ -1181,6 +1184,7 @@ def _parse_audio_chunk(*, payload: dict[str, Any], default_mime_type: str) -> Au
         audio_bytes=audio_bytes,
         sample_count=sample_count,
     )
+
 
 
 

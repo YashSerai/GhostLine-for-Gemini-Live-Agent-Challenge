@@ -41,7 +41,7 @@ It is:
 - grounded in visible UI state
 - hosted on Google Cloud
 
-The experience is not just “talk to a model.” The user enters a live call, gets permissions requested in context, performs real-world steps in the room, triggers staged verification, and can interrupt the operator while the operator is still speaking.
+The experience is not just "talk to a model." The user enters a live call, gets permissions requested in context, performs real-world steps in the room, triggers staged verification, and can interrupt the operator while the operator is still speaking.
 
 That last part matters. A lot of AI voice demos still feel linear because the interruption path is weak. In Ghostline, barge-in is a first-class interaction. Operator audio stops immediately, stale queued audio is flushed, and the Archivist restates briefly instead of continuing to talk over the user.
 
@@ -118,7 +118,7 @@ So Ghostline includes a first-class **Demo Mode** with:
 - a fixed safe task path
 - one scripted diagnosis beat
 - one scripted barge-in moment
-- one controlled near-failure and recovery beat
+- optional natural recovery beat if the operator rejects a real failed verify
 - a fast reset path between takes
 
 That does not make the product less real. It makes the best presentation path more repeatable.

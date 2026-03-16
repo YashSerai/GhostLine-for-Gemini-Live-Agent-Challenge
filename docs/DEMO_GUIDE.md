@@ -32,7 +32,6 @@ These beats are controlled for reliability:
 
 - demo opener branches for mic permission state
 - fixed diagnosis beat around `T14`
-- one controlled near-failure on `T2`
 - one fixed interruption phrase
 - demo reset button in the UI
 
@@ -46,6 +45,11 @@ These parts are still live:
 - verification results
 - recovery outcome
 - transcript and HUD state
+
+Important:
+
+- demo mode does not force any failure result
+- if you want to show recovery, fail the task naturally on purpose and let the normal verification pipeline reject it
 
 ## 4. Room Setup Before Recording
 
@@ -65,16 +69,14 @@ Before you record, check:
 - camera feed is stable
 - backend is connected
 
-## 5. Exact Controlled Beats
+## 5. Optional Recovery Beat
 
-### Near-Failure Beat
+If you want to demonstrate recovery, do it manually.
 
-This happens on `T2`.
-
-What you do:
+Suggested version on `T2`:
 
 1. keep the doorway visible
-2. do not close it on the first verification attempt
+2. leave it open on purpose
 3. say `Ready to Verify.`
 4. let the operator reject the attempt honestly
 5. close the door fully
@@ -82,11 +84,13 @@ What you do:
 
 What the demo should show:
 
-- an honest `unconfirmed` result
+- an honest `unconfirmed` result from the normal pipeline
 - a clear recovery line
-- a successful retry
+- a successful retry after correction
 
-### Barge-In Beat
+If the first verify succeeds, keep going. Do not assume demo mode will inject a failure for you.
+
+## 6. Barge-In Beat
 
 Use this exact phrase once during the diagnosis interpretation beat:
 
@@ -99,7 +103,7 @@ What the demo should show:
 - transcript reflects the interruption
 - operator restates cleanly
 
-## 6. Step-By-Step Recording Flow
+## 7. Step-By-Step Recording Flow
 
 ### Start
 
@@ -131,21 +135,23 @@ Recommended spoken line only if needed:
 ### Task 1: T2 Close Boundary
 
 10. keep the doorway visible
-11. intentionally leave it open
+11. close the door fully
 12. say `Ready to Verify.`
-13. let the first verify fail
-14. close the door fully
-15. say `Ready to Verify.` again
+
+Optional recovery version instead:
+
+- first leave it open and verify once to produce a natural failure
+- then close it fully and verify again
 
 ### Task 2: T5 Place Paper on Flat Surface
 
-16. place the paper clearly on the visible surface
-17. hold still when verifying
-18. say `Ready to Verify.`
+13. place the paper clearly on the visible surface
+14. hold still when verifying
+15. say `Ready to Verify.`
 
 ### Task 3: T14 Describe the Sound
 
-19. answer briefly when asked what the sound resembled
+16. answer briefly when asked what the sound resembled
 
 Recommended line:
 
@@ -153,23 +159,23 @@ Recommended line:
 
 ### Barge-In
 
-20. wait for the diagnosis interpretation line
-21. interrupt once with:
+17. wait for the diagnosis interpretation line
+18. interrupt once with:
 
 `Archivist, wait. Say that again.`
 
 ### Task 4: T7 Speak Containment Phrase
 
-22. follow the final task instructions cleanly
-23. complete the phrase and hold framing steady as needed
+19. follow the final task instructions cleanly
+20. complete the phrase and hold framing steady as needed
 
 ### Ending
 
-24. let the case report render fully
-25. hold on the report for a few seconds
-26. stop recording
+21. let the case report render fully
+22. hold on the report for a few seconds
+23. stop recording
 
-## 7. What Must Be Visible In The Video
+## 8. What Must Be Visible In The Video
 
 A good judged take clearly shows:
 
@@ -178,12 +184,11 @@ A good judged take clearly shows:
 - transcript updating live
 - room scan commentary
 - HUD changing with the task flow
-- one honest failed verification
-- one clean recovery
+- if you choose to show recovery, one honest failed verification followed by correction
 - one clear interruption moment
 - final case report
 
-## 8. Recommended User Lines
+## 9. Recommended User Lines
 
 Keep user speech short and repeatable:
 
@@ -194,7 +199,7 @@ Keep user speech short and repeatable:
 - `It sounded like it came from the doorway.`
 - `Archivist, wait. Say that again.`
 
-## 9. Demo Timing Target
+## 10. Demo Timing Target
 
 Stay under `4:00` total.
 
@@ -203,14 +208,16 @@ Recommended pacing:
 - `0:00-0:15` splash and call start
 - `0:15-0:40` mic, name, camera
 - `0:40-1:00` room scan
-- `1:00-1:45` `T2` with fail then retry
-- `1:45-2:15` `T5`
-- `2:15-2:40` `T14` diagnosis beat
-- `2:40-3:00` barge-in
-- `3:00-3:25` `T7`
-- `3:25-3:50` case report
+- `1:00-1:30` `T2`
+- `1:30-2:00` `T5`
+- `2:00-2:25` `T14` diagnosis beat
+- `2:25-2:45` barge-in
+- `2:45-3:10` `T7`
+- `3:10-3:40` case report
 
-## 10. What To Verify Right Before Recording
+If you choose to show a manual failure and retry on `T2`, add another `15-25s`.
+
+## 11. What To Verify Right Before Recording
 
 Check all of these:
 
@@ -220,20 +227,23 @@ Check all of these:
 - camera feed is live
 - room scan reaches the backend
 - `Ready to Verify` works
-- `unconfirmed` can appear on the first `T2` attempt
-- retry can succeed
 - interruption works once
 - case report renders at the end
 
-## 11. If A Take Drifts
+Optional recovery check:
+
+- an intentional manual miss can produce `unconfirmed`
+- retry can succeed after correction
+
+## 12. If A Take Drifts
 
 - use `Demo Reset`
 - restart from the root URL
 - do not improvise around the fixed beats during the judged take
 - if the interruption misses, reset and do another take
-- if the first `T2` attempt accidentally succeeds, reset and redo the demo
+- if a manual failure beat does not land cleanly, continue or reset based on time
 
-## 12. Related Docs
+## 13. Related Docs
 
 - [docs/HACKATHON_SUBMISSION_GUIDE.md](docs/HACKATHON_SUBMISSION_GUIDE.md)
 - [docs/DEMO_MODE.md](docs/DEMO_MODE.md)
