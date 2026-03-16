@@ -69,10 +69,9 @@ Recommended internal-only docs:
 - `docs/BUILD_GUIDE.md`
 - `docs/PRODUCT_CONTEXT.md`
 
-Recommended delete or hide if you want a lean public surface:
 
-- `docs/DEMO_PROCEDURE.md`
-- `docs/DEMO_SCRIPT.md`
+Legacy demo doc stubs have already been removed from the public doc surface.
+
 
 ### 3.2 Verify README
 
@@ -389,3 +388,4 @@ Before pressing submit, verify this exact checklist:
 10. upload repo URL, cloud proof, architecture diagram, demo video, and bonus links
 11. do one last incognito check
 12. submit
+

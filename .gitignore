@@ -41,3 +41,11 @@ Thumbs.db
 # Generated TypeScript config output
 client/vite.config.js
 client/vite.config.d.ts
+# Internal docs not intended for the public repo
+docs/BUILD_GUIDE.md
+docs/FIX_TRACKER.md
+docs/PRODUCT_CONTEXT.md
+
+# Legacy demo doc stubs kept out of the public repo if recreated locally
+docs/DEMO_PROCEDURE.md
+docs/DEMO_SCRIPT.md
